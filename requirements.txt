@@ -1,0 +1,3 @@
+# on Raspberry Pi OS (Bookworm): sudo apt install python3-picamera2
+adafruit-circuitpython-as7341
+bme680

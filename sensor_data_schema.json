@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MAED V1.4 sample record",
+  "type": "object",
+  "required": [
+    "sample_id",
+    "food_type",
+    "storage_condition",
+    "collected_at",
+    "ground_truth",
+    "ai_result",
+    "model_validated",
+    "sensor_status",
+    "acquisition_status",
+    "data_source"
+  ],
+  "properties": {
+    "sample_id": {
+      "type": "string"
+    },
+    "food_type": {
+      "type": "string"
+    },
+    "storage_condition": {
+      "enum": [
+        "room_temperature",
+        "refrigerated",
+        "frozen",
+        "other"
+      ]
+    },
+    "collected_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "temperature_c": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "V1.3: manual entry until sensor connected"
+    },
+    "humidity_percent": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "From BME688 via Pi; null if not acquired"
+    },
+    "ground_truth": {
+      "type": "object",
+      "required": [
+        "status",
+        "source"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "not_yet_available",
+            "acceptable_per_protocol",
+            "quality_concern",
+            "unsafe_per_protocol"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "description": "Qualified food-safety/laboratory protocol only; never the app or AI"
+        },
+        "reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ai_result": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "enum": [
+            "UNCERTAIN",
+            "LOW_RISK",
+            "HIGH_RISK"
+          ],
+          "description": "V1.3 always UNCERTAIN. LOW/HIGH only after validated GO."
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "model_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model_validated": {
+      "type": "boolean"
+    },
+    "risk_score": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "rgb_image_file": {
+      "type": "string"
+    },
+    "pi_image_file": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "as7341": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "null = not collected. F1-F8, Clear, NIR counts, gain, integration_ms"
+    },
+    "bme688": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "null = not collected. Gas pattern only; NOT a pathogen detector"
+    },
+    "sensor_status": {
+      "type": "string",
+      "description": "e.g. {\"camera\":\"SENSOR_NOT_CONNECTED\",...}"
+    },
+    "acquisition_status": {
+      "enum": [
+        "COMPLETE",
+        "PARTIAL",
+        "NO_REAL_SENSOR_DATA",
+        "SENSOR_NOT_CONNECTED"
+      ]
+    },
+    "data_source": {
+      "enum": [
+        "real",
+        "simulated"
+      ],
+      "description": "simulated never exported with real"
+    }
+  }
+}
