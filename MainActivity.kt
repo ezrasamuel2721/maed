@@ -43,7 +43,7 @@ private val DEMO = listOf(
     "Adama Fresh Kitchen — Adama: Chicken 230 ETB · Rice 140 ETB · Salad 100 ETB"
 )
 private val MENU = listOf(
-    "dataset" to "🗂️ Dataset", "model" to "🤖 AI ሞዴል", "screening" to "🛡️ Food Safety Screening", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት", "diagnostics" to "🔧 Hardware Test",
+    "dataset" to "🗂️ Dataset", "model" to "🤖 AI ሞዴል", "screening" to "🛡️ Food Safety Screening", "target" to "🧪 ንጥረ ነገር ፈልግ", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት", "diagnostics" to "🔧 Hardware Test",
     "🍽️ ምግብ ቤቶች" to "🍽️ ምግብ ቤቶች", "🏨 ሆቴሎች" to "🏨 ሆቴሎች", "📋 ሜኑዎች" to "📋 ሜኑዎች",
     "💰 ዋጋዎች" to "💰 ዋጋዎች", "🛒 ትዕዛዝ" to "🛒 ትዕዛዝ", "📍 በአካባቢዬ ያሉ" to "📍 በአካባቢዬ ያሉ",
     "👤 የንግድ ባለቤት መመዝገቢያ" to "👤 የንግድ ባለቤት መመዝገቢያ"
@@ -65,6 +65,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var modelBusy by mutableStateOf(false)
     private var modelMessage by mutableStateOf("")
     private var samples by mutableStateOf(listOf<Sample>())
+    private var targetResult by mutableStateOf<TargetResult?>(null)
+    private var targetMessage by mutableStateOf("")
     private var camFile: File? = null
     private var pickFor = "sample"
 
@@ -240,7 +242,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Box(Modifier.weight(1f).padding(16.dp)) {
                 when (screen) {
                     "home" -> Home(); "record" -> Record(); "working" -> Working(); "result" -> Result()
-                    "dataset" -> Dataset(); "model" -> ModelScreen(); "screening" -> ScreeningInfo(); "settings" -> Settings(); "report" -> Report(); "diagnostics" -> Diagnostics(); else -> Layer(screen)
+                    "dataset" -> Dataset(); "model" -> ModelScreen(); "screening" -> ScreeningInfo(); "target" -> TargetScreen(); "settings" -> Settings(); "report" -> Report(); "diagnostics" -> Diagnostics(); else -> Layer(screen)
                 }
             }
         }
@@ -253,7 +255,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         Text("ምግብህን ከመመገብህ በፊት መርምር")
         OutlinedButton(onClick = { msg = ""; pickFor = "sample"; pick.launch("image/*") }, Modifier.fillMaxWidth()) { Text("🖼️ ፎቶ ምረጥ") }
         if (msg.isNotEmpty()) Text(msg, color = Color(0xFFB42318))
-        Text("ማዕድ አሁን ሁለት ደረጃ አለው፦ ① validated AI ካለ CLEAN/CONTAMINATED ሊገምት ይችላል፤ ② ላብ ሳይኖር Food Safety Screening የsensor-pattern ልዩነትን LOW/MEDIUM/HIGH ብሎ ያሳያል። Screening የብክለት ማረጋገጫ አይደለም።", fontSize = 13.sp)
+        Text("ማዕድ አሁን ① validated food model ካለ CLEAN/CONTAMINATED ይላል፤ ② የተወሰነ target ካለ PRESENT/ABSENT/UNCERTAIN ይፈልጋል፤ ③ ላብ ሳይኖር screening LOW/MEDIUM/HIGH ብሎ ያሳያል።", fontSize = 13.sp)
     }
 
     @Composable private fun Record() {
@@ -311,6 +313,79 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (msg.isNotEmpty()) Text(msg, fontSize = 12.sp)
         Button(onClick = { speak(VOICE_UNCERTAIN) }) { Text("🔊 እንደገና አንብብ") }
         OutlinedButton(onClick = { tts.stop(); msg = ""; screen = "home" }) { Text("አዲስ ምርመራ") }
+    }
+
+    @Composable private fun TargetScreen() {
+        var target by remember { mutableStateOf("") }
+        var food by remember { mutableStateOf("") }
+        var storage by remember { mutableStateOf(STORAGE[0]) }
+        var present by remember { mutableStateOf(true) }
+        var busy by remember { mutableStateOf(false) }
+        val state = TargetDetector.state(this@MainActivity, target)
+        Scroll {
+            Text("🧪 የተወሰነ ንጥረ ነገር መፈለጊያ", fontSize = 22.sp)
+            Text("የምትፈልጉትን ንጥረ ነገር ስም ያስገቡ። መጀመሪያ PRESENT እና ABSENT የእውነተኛ sensor reference ናሙናዎች በመሰብሰብ model መረጋገጥ አለበት።", fontSize = 13.sp)
+            OutlinedTextField(target, { target = it }, label = { Text("የሚፈለገው ንጥረ ነገር") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(food, { food = it }, label = { Text("የምግብ/መጠጥ ዓይነት") }, modifier = Modifier.fillMaxWidth())
+            Text("ይህ reference ንጥረ ነገሩን ይዟል?")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(present, { present = true }, { Text("PRESENT") })
+                FilterChip(!present, { present = false }, { Text("ABSENT") })
+            }
+            Text("የማከማቻ ሁኔታ")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                STORAGE.forEach { FilterChip(storage == it, { storage = it }, { Text(it.replace('_',' '), fontSize=11.sp) }) }
+            }
+            Button(
+                enabled = target.isNotBlank() && !busy,
+                onClick = {
+                    busy = true; targetMessage = ""
+                    Thread {
+                        val p = getSharedPreferences("maed", MODE_PRIVATE)
+                        val a = SensorClient.acquire(p.getString("url","") ?: "", p.getString("token","") ?: "")
+                        val id = "TGT-" + System.currentTimeMillis()
+                        if (a.spectral == null || a.voc == null) {
+                            runOnUiThread { busy=false; targetMessage="❌ እውነተኛ AS7341/BME688 መረጃ አልተገኘም። Reference አልተመዘገበም።" }
+                        } else {
+                            TargetDetector.addReference(this@MainActivity, TargetReference(id,target.trim(),present,food.trim().ifEmpty{"unspecified"},storage,
+                                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX",Locale.US).format(Date()),a.spectral,a.voc))
+                            runOnUiThread { busy=false; targetMessage="✅ Reference ተመዝግቧል። " + if(present) "PRESENT" else "ABSENT" }
+                        }
+                    }.start()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { if(busy) CircularProgressIndicator(modifier=Modifier.size(20.dp)) else Text("📡 Sensor reference ሰብስብ") }
+            Text("PRESENT: ${state.presentCount} · ABSENT: ${state.absentCount}")
+            Text("Sensitivity: ${state.sensitivity} · Specificity: ${state.specificity}", fontSize=12.sp)
+            Button(enabled=target.isNotBlank(), onClick={
+                Thread {
+                    val r=TargetDetector.train(this@MainActivity,target)
+                    runOnUiThread { targetMessage=r.reason }
+                }
+            }, modifier=Modifier.fillMaxWidth()) { Text("🤖 Target model አሰልጥን እና Validate አድርግ") }
+            Button(enabled=target.isNotBlank() && !busy, onClick={
+                busy=true; targetResult=null
+                Thread {
+                    val p=getSharedPreferences("maed",MODE_PRIVATE)
+                    val a=SensorClient.acquire(p.getString("url","") ?: "",p.getString("token","") ?: "")
+                    val r=TargetDetector.predict(this@MainActivity,target,a.spectral,a.voc)
+                    runOnUiThread { busy=false; targetResult=r }
+                }.start()
+            }, modifier=Modifier.fillMaxWidth()) { Text("🔎 አሁን ይህን target ፈልግ") }
+            targetResult?.let { r ->
+                Column(Modifier.fillMaxWidth().background(Color(0xFFEEF4F0)).padding(14.dp)) {
+                    when(r.verdict) {
+                        "PRESENT" -> Text("🔴 TARGET PRESENT",fontSize=22.sp)
+                        "ABSENT" -> Text("🟢 TARGET NOT DETECTED",fontSize=22.sp)
+                        else -> Text("🟡 UNCERTAIN",fontSize=22.sp)
+                    }
+                    r.confidence?.let { Text("Confidence: ${String.format(Locale.US,"%.2f",it)}") }
+                    Text(r.reason,fontSize=12.sp)
+                }
+            }
+            if(targetMessage.isNotEmpty()) Text(targetMessage,fontSize=13.sp)
+            Text("⚠️ ይህ ስርዓት ማንኛውንም ንጥረ ነገር በአንድ sensor በአውቶማቲክ እንደሚለይ አይቆጥርም። የተመረጠው target በAS7341/BME688 ላይ ልዩ እና ተደጋጋሚ sensor signature ካሳየ ብቻ የvalidated PRESENT/ABSENT ውጤት ይሰጣል።",fontSize=12.sp)
+        }
     }
 
     @Composable private fun ScreeningInfo() = Scroll {
