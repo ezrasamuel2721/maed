@@ -22,6 +22,7 @@ data class Sample(
     val id: String, val foodType: String, val storage: String, val collectedAt: String,
     val tempC: Double?, val humidity: Double?, val image: String, val piImage: String?,
     val spectral: String?, val voc: String?, val groundTruth: String,
+    val baselineReference: Boolean = false,
     val aiResult: String, val modelVersion: String?, val modelValidated: Boolean, val riskScore: Double?,
     val sensorStatus: String, val acquisitionStatus: String, val dataSource: String = "real", val labReference: String? = null, val groundTruthMethod: String? = null, val groundTruthReferenceId: String? = null, val evidenceStorage: String? = null
 ) {
@@ -31,7 +32,7 @@ data class Sample(
         put("rgb_image_file", image); put("pi_image_file", piImage ?: JSONObject.NULL)
         put("as7341", spectral?.let { JSONObject(it) } ?: JSONObject.NULL)
         put("bme688", voc?.let { JSONObject(it) } ?: JSONObject.NULL)
-        put("ground_truth", groundTruth); put("ai_result", aiResult); put("model_version", modelVersion ?: JSONObject.NULL)
+        put("ground_truth", groundTruth); put("baseline_reference", baselineReference); put("ai_result", aiResult); put("model_version", modelVersion ?: JSONObject.NULL)
         put("model_validated", modelValidated); put("risk_score", riskScore ?: JSONObject.NULL)
         put("sensor_status", sensorStatus); put("acquisition_status", acquisitionStatus)
         put("data_source", dataSource); put("lab_reference", labReference ?: JSONObject.NULL); put("ground_truth_method", groundTruthMethod ?: JSONObject.NULL); put("ground_truth_reference_id", groundTruthReferenceId ?: JSONObject.NULL); put("evidence_storage", evidenceStorage ?: JSONObject.NULL)
@@ -45,7 +46,7 @@ data class Sample(
             return Sample(
                 o.getString("sample_id"), o.getString("food_type"), o.getString("storage_condition"), o.getString("collected_at"),
                 d("temperature_c"), d("humidity_percent"), o.getString("rgb_image_file"), s("pi_image_file"),
-                j("as7341"), j("bme688"), o.getString("ground_truth"), o.getString("ai_result"), s("model_version"),
+                j("as7341"), j("bme688"), o.getString("ground_truth"), o.optBoolean("baseline_reference", false), o.getString("ai_result"), s("model_version"),
                 o.optBoolean("model_validated", false), d("risk_score"), o.getString("sensor_status"),
                 o.getString("acquisition_status"), o.optString("data_source", "real"), o.optString("lab_reference", null), o.optString("ground_truth_method", null), o.optString("ground_truth_reference_id", null), o.optString("evidence_storage", null)
             )
@@ -260,12 +261,13 @@ object FoodRiskScreening {
         val refs = all.filter {
             it.id != current.id &&
             it.dataSource == "real" &&
+            it.baselineReference &&
             it.foodType.equals(current.foodType, ignoreCase = true) &&
             it.storage == current.storage
         }.mapNotNull { features(it) }
 
         val fallback = all.filter {
-            it.id != current.id && it.dataSource == "real"
+            it.id != current.id && it.dataSource == "real" && it.baselineReference
         }.mapNotNull { features(it) }
 
         val rows = if (refs.size >= MIN_REFERENCE) refs else fallback
@@ -337,6 +339,7 @@ class Repo(private val ctx: Context) {
     fun save(s: Sample) { File(dir, s.id + ".json").writeText(s.toJson().toString()) }
     fun delete(id: String) { all().find { it.id == id }?.let { File(imgDir, it.image).delete(); it.piImage?.let { p -> File(imgDir, p).delete() } }; File(dir, "$id.json").delete() }
     fun setGroundTruth(id: String, gt: String) { all().find { it.id == id }?.let { save(it.copy(groundTruth = gt)) } }
+    fun setBaselineReference(id: String, enabled: Boolean) { all().find { it.id == id }?.let { save(it.copy(baselineReference = enabled)) } }
     fun setLabReference(id: String, reference: String?) { all().find { it.id == id }?.let { save(it.copy(labReference = reference?.trim()?.ifEmpty { null })) } }
     fun setGroundTruthEvidence(id: String, method: String?, referenceId: String?, evidence: String?) { all().find { it.id == id }?.let { save(it.copy(groundTruthMethod = method?.trim()?.ifEmpty { null }, groundTruthReferenceId = referenceId?.trim()?.ifEmpty { null }, evidenceStorage = evidence?.trim()?.ifEmpty { null })) } }
     private fun exportDir() = File(ctx.cacheDir, "exports").also { it.mkdirs() }
@@ -345,14 +348,14 @@ class Repo(private val ctx: Context) {
         fun e(v: Any?): String {
             return "\"" + (v?.toString() ?: "").replace("\"", "\"\"") + "\""
         }
-        val header = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference,ground_truth_method,ground_truth_reference_id,evidence_storage"
+        val header = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,baseline_reference,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference,ground_truth_method,ground_truth_reference_id,evidence_storage"
         val rows = all()
             .filter { it.dataSource == "real" }
             .map { sample ->
                 listOf(
                     sample.id, sample.foodType, sample.storage, sample.collectedAt,
                     sample.tempC, sample.humidity, sample.image, sample.spectral,
-                    sample.voc, sample.groundTruth, sample.aiResult, sample.modelVersion,
+                    sample.voc, sample.groundTruth, sample.baselineReference, sample.aiResult, sample.modelVersion,
                     sample.modelValidated, sample.riskScore, sample.sensorStatus,
                     sample.acquisitionStatus, sample.dataSource, sample.labReference, sample.groundTruthMethod, sample.groundTruthReferenceId, sample.evidenceStorage
                 ).joinToString(",") { value -> e(value) }
