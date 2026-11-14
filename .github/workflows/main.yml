@@ -32,12 +32,14 @@ jobs:
           mkdir -p app/src/main/java/et/maed/app
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/xml
+          mkdir -p app/src/androidTest/java/et/maed/app
 
           cp MainActivity.kt app/src/main/java/et/maed/app/MainActivity.kt
           cp Model.kt app/src/main/java/et/maed/app/Model.kt
           cp Sensor.kt app/src/main/java/et/maed/app/Sensor.kt
           cp CameraFoodClassifier.kt app/src/main/java/et/maed/app/CameraFoodClassifier.kt
           cp TargetDetection.kt app/src/main/java/et/maed/app/TargetDetection.kt
+          cp MainActivityInstrumentedTest.kt app/src/androidTest/java/et/maed/app/MainActivityInstrumentedTest.kt
 
           cp AndroidManifest.xml app/src/main/AndroidManifest.xml
           cp strings.xml app/src/main/res/values/strings.xml
@@ -59,6 +61,7 @@ jobs:
                   targetSdk = 34
                   versionCode = 15
                   versionName = "1.5"
+                  testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
               }
 
               buildFeatures {
@@ -95,6 +98,10 @@ jobs:
               implementation("androidx.core:core-splashscreen:1.0.1")
 
               debugImplementation("androidx.compose.ui:ui-tooling")
+
+              androidTestImplementation("androidx.test:core:1.6.1")
+              androidTestImplementation("androidx.test.ext:junit:1.2.1")
+              androidTestImplementation("junit:junit:4.13.2")
           }
           EOF
 
@@ -113,6 +120,14 @@ jobs:
 
       - name: Build MAED APK
         run: gradle --no-daemon --stacktrace assembleDebug
+
+      - name: Run Android runtime smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_2
+          script: gradle --no-daemon --stacktrace connectedDebugAndroidTest
 
       - name: Verify APK exists
         run: |
