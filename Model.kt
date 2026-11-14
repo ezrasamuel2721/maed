@@ -313,7 +313,7 @@ class Repo(private val ctx: Context) {
     fun exportJson(): File { val real=all().filter { it.dataSource=="real" }; val root=JSONObject().put("dataset","maed").put("schema_version",DATASET_SCHEMA_VERSION).put("model_validated",FoodClassifier.state(ctx).ready).put("count",real.size); root.put("samples",JSONArray(real.map { it.toJson() })); return File(exportDir(),"maed-dataset.json").also { it.writeText(root.toString(2)) } }
     fun exportCsv(): File {
         fun e(v: Any?): String {
-            return """ + (v?.toString() ?: "").replace(""", """") + """
+            return """ + (v?.toString() ?: "").replace(""", """") + ""
         }
         val header = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference"
         val rows = all()
