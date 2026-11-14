@@ -99,6 +99,7 @@ object FoodClassifier {
 
     fun trainAndValidate(ctx: Context, all: List<Sample>): ModelState {
         val usable = all.filter { it.dataSource == "real" && it.labReference?.isNotBlank() == true &&
+            it.groundTruthMethod?.isNotBlank() == true && it.groundTruthReferenceId?.isNotBlank() == true &&
             (it.groundTruth == "clean_per_protocol" || it.groundTruth == "contaminated_per_protocol") }
             .mapNotNull { s -> features(s)?.let { s to it } }
         val clean = usable.filter { it.first.groundTruth == "clean_per_protocol" }
@@ -344,7 +345,7 @@ class Repo(private val ctx: Context) {
         fun e(v: Any?): String {
             return "\"" + (v?.toString() ?: "").replace("\"", "\"\"") + "\""
         }
-        val header = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference"
+        val header = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference,ground_truth_method,ground_truth_reference_id"
         val rows = all()
             .filter { it.dataSource == "real" }
             .map { sample ->
@@ -353,7 +354,7 @@ class Repo(private val ctx: Context) {
                     sample.tempC, sample.humidity, sample.image, sample.spectral,
                     sample.voc, sample.groundTruth, sample.aiResult, sample.modelVersion,
                     sample.modelValidated, sample.riskScore, sample.sensorStatus,
-                    sample.acquisitionStatus, sample.dataSource, sample.labReference
+                    sample.acquisitionStatus, sample.dataSource, sample.labReference, sample.groundTruthMethod, sample.groundTruthReferenceId
                 ).joinToString(",") { value -> e(value) }
             }
         return File(exportDir(), "maed-dataset.csv").also {
