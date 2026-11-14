@@ -43,7 +43,7 @@ private val DEMO = listOf(
     "Adama Fresh Kitchen — Adama: Chicken 230 ETB · Rice 140 ETB · Salad 100 ETB"
 )
 private val MENU = listOf(
-    "dataset" to "🗂️ Dataset", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት", "diagnostics" to "🔧 Hardware Test",
+    "dataset" to "🗂️ Dataset", "model" to "🤖 AI ሞዴል", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት", "diagnostics" to "🔧 Hardware Test",
     "🍽️ ምግብ ቤቶች" to "🍽️ ምግብ ቤቶች", "🏨 ሆቴሎች" to "🏨 ሆቴሎች", "📋 ሜኑዎች" to "📋 ሜኑዎች",
     "💰 ዋጋዎች" to "💰 ዋጋዎች", "🛒 ትዕዛዝ" to "🛒 ትዕዛዝ", "📍 በአካባቢዬ ያሉ" to "📍 በአካባቢዬ ያሉ",
     "👤 የንግድ ባለቤት መመዝገቢያ" to "👤 የንግድ ባለቤት መመዝገቢያ"
@@ -61,6 +61,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var msg by mutableStateOf("")
     private var diagnostic by mutableStateOf("")
     private var diagnosticBusy by mutableStateOf(false)
+    private var modelState by mutableStateOf<ModelState?>(null)
+    private var modelBusy by mutableStateOf(false)
+    private var modelMessage by mutableStateOf("")
     private var samples by mutableStateOf(listOf<Sample>())
     private var camFile: File? = null
     private var pickFor = "sample"
@@ -75,6 +78,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         repo = Repo(this)
         tts = TextToSpeech(this, this)
         samples = repo.all()
+        modelState = FoodClassifier.state(this)
         setContent { MaterialTheme { App() } }
     }
 
@@ -117,11 +121,27 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             if (a.piImageB64 != null) try {
                 piName = "$id-pi.jpg"; File(repo.imgDir, piName).writeBytes(Base64.decode(a.piImageB64, Base64.DEFAULT))
             } catch (e: Exception) { piName = null }
-            val s = Sample(id, food, storage, SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date()),
+            val base = Sample(id, food, storage, SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date()),
                 a.tempC, a.humidity, "$id.jpg", piName, a.spectral, a.voc, "not_yet_available",
-                verdict(), null, MODEL_VALIDATED, null, a.sensorStatus, a.status)
+                "UNCERTAIN", null, false, null, a.sensorStatus, a.status)
+            val r = FoodClassifier.predict(this, base)
+            val s = base.copy(aiResult = r.verdict, modelVersion = r.modelVersion, modelValidated = r.modelValidated, riskScore = r.confidence)
             repo.save(s)
-            runOnUiThread { last = s; samples = repo.all(); screen = "result"; speak(VOICE_UNCERTAIN) }
+            runOnUiThread { last = s; samples = repo.all(); modelState = FoodClassifier.state(this); screen = "result"; speak(if (r.verdict == "CLEAN") "ማዕድ፦ ሞዴሉ ጤነኛ ብሎ ገምቷል።" else if (r.verdict == "CONTAMINATED") "ማዕድ፦ ሞዴሉ የተበከለ ብሎ ገምቷል።" else VOICE_UNCERTAIN) }
+        }.start()
+    }
+
+    private fun trainModel() {
+        if (modelBusy) return
+        modelBusy = true
+        modelMessage = ""
+        Thread {
+            val result = FoodClassifier.trainAndValidate(this, repo.all())
+            runOnUiThread {
+                modelState = result
+                modelBusy = false
+                modelMessage = result.reason
+            }
         }.start()
     }
 
@@ -219,7 +239,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Box(Modifier.weight(1f).padding(16.dp)) {
                 when (screen) {
                     "home" -> Home(); "record" -> Record(); "working" -> Working(); "result" -> Result()
-                    "dataset" -> Dataset(); "settings" -> Settings(); "report" -> Report(); "diagnostics" -> Diagnostics(); else -> Layer(screen)
+                    "dataset" -> Dataset(); "model" -> ModelScreen(); "settings" -> Settings(); "report" -> Report(); "diagnostics" -> Diagnostics(); else -> Layer(screen)
                 }
             }
         }
@@ -259,8 +279,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val s = last
         Photo(s?.let { File(repo.imgDir, it.image) })
         Column(Modifier.fillMaxWidth().background(Color(0xFFFFF3CD)).padding(14.dp)) {
-            Text("🟡 UNCERTAIN", fontSize = 22.sp)
-            Text(TEXT_UNCERTAIN)
+            when (s?.aiResult) {
+                "CLEAN" -> { Text("🟢 CLEAN — ጤነኛ", fontSize = 22.sp); Text("የተረጋገጠ ሞዴል ይህን ናሙና ጤነኛ ብሎ ገምቷል።") }
+                "CONTAMINATED" -> { Text("🔴 CONTAMINATED — የተበከለ", fontSize = 22.sp); Text("የተረጋገጠ ሞዴል ይህን ናሙና የተበከለ ብሎ ገምቷል።") }
+                else -> { Text("🟡 UNCERTAIN", fontSize = 22.sp); Text(TEXT_UNCERTAIN) }
+            }
         }
         if (s != null) {
             Text("Sample ID: ${s.id}", fontSize = 12.sp)
@@ -271,6 +294,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (msg.isNotEmpty()) Text(msg, fontSize = 12.sp)
         Button(onClick = { speak(VOICE_UNCERTAIN) }) { Text("🔊 እንደገና አንብብ") }
         OutlinedButton(onClick = { tts.stop(); msg = ""; screen = "home" }) { Text("አዲስ ምርመራ") }
+    }
+
+    @Composable private fun ModelScreen() = Scroll {
+        val m = modelState ?: FoodClassifier.state(this)
+        Text("🤖 MAED AI ሞዴል", fontSize = 22.sp)
+        Text("Sensor baseline: AS7341 + BME688", fontSize = 13.sp)
+        Text("ይህ ሞዴል የሚሰራው በላብራቶሪ የተረጋገጠ CLEAN/CONTAMINATED ናሙና ላይ ብቻ ነው።")
+        Column(Modifier.fillMaxWidth().background(Color(0xFFEEF4F0)).padding(14.dp)) {
+            Text(if (m.ready) "🟢 MODEL READY" else "🟡 MODEL NOT READY", fontSize = 20.sp)
+            Text("CLEAN: " + m.cleanCount + " · CONTAMINATED: " + m.contaminatedCount + " · validation: " + m.validationCount)
+            Text("Sensitivity: " + m.sensitivity)
+            Text("Specificity: " + m.specificity)
+            Text(m.reason, fontSize = 12.sp)
+        }
+        Button(onClick = { trainModel() }, enabled = !modelBusy, modifier = Modifier.fillMaxWidth()) {
+            if (modelBusy) CircularProgressIndicator(modifier = Modifier.size(20.dp)) else Text("▶ AI ሞዴልን አሰልጥን እና Validate አድርግ")
+        }
+        if (modelMessage.isNotEmpty()) Text(modelMessage, fontSize = 13.sp)
+        Text("⚠️ ሞዴሉ የvalidation መስፈርትን ካላለፈ CLEAN/CONTAMINATED አይሰጥም።", fontSize = 12.sp)
     }
 
     @Composable private fun Dataset() = Scroll {
