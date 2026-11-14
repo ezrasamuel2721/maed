@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MAED True Verification Reference Sample",
+  "type": "object",
+  "required": [
+    "sample_id",
+    "food_type",
+    "storage_condition",
+    "collected_at",
+    "ground_truth_status",
+    "ground_truth_method",
+    "ground_truth_reference_id"
+  ],
+  "properties": {
+    "sample_id": {"type": "string", "minLength": 1},
+    "food_type": {"type": "string", "minLength": 1},
+    "storage_condition": {"type": "string", "minLength": 1},
+    "collected_at": {"type": "string", "minLength": 1},
+    "ground_truth_status": {"enum": ["CLEAN", "CONTAMINATED"]},
+    "ground_truth_method": {"type": "string", "minLength": 1},
+    "ground_truth_reference_id": {"type": "string", "minLength": 1},
+    "sensor_capture_id": {"type": "string"},
+    "camera_capture_id": {"type": "string"}
+  },
+  "additionalProperties": true
+}
