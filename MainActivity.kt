@@ -51,7 +51,7 @@ private val MENU = listOf(
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var repo: Repo
-    private lateinit var tts: TextToSpeech
+    private var tts: TextToSpeech? = null
     private var amVoice = false
     private var screen by mutableStateOf("home")
     private var menuOpen by mutableStateOf(false)
@@ -79,7 +79,6 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repo = Repo(this)
-        tts = TextToSpeech(this, this)
         samples = repo.all()
         modelState = FoodClassifier.state(this)
         cameraState = CameraFoodClassifier.state(this)
@@ -90,10 +89,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) amVoice = tts.setLanguage(Locale("am", "ET")) >= TextToSpeech.LANG_AVAILABLE
     }
 
-    override fun onDestroy() { tts.shutdown(); super.onDestroy() }
+    override fun onDestroy() { tts?.shutdown(); tts = null; super.onDestroy() }
 
     private fun speak(t: String) {
-        if (amVoice) tts.speak(t, TextToSpeech.QUEUE_FLUSH, null, "maed")
+        val voice = tts ?: TextToSpeech(this, this).also { tts = it }
+        if (amVoice) voice.speak(t, TextToSpeech.QUEUE_FLUSH, null, "maed")
         else msg = "የአማርኛ ድምፅ (Text-to-Speech) በዚህ ስልክ አልተገኘም። ጽሑፉን ያንብቡ።"
     }
 
@@ -338,7 +338,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }
         if (msg.isNotEmpty()) Text(msg, fontSize = 12.sp)
         Button(onClick = { speak(VOICE_UNCERTAIN) }) { Text("🔊 እንደገና አንብብ") }
-        OutlinedButton(onClick = { tts.stop(); msg = ""; screen = "home" }) { Text("አዲስ ምርመራ") }
+        OutlinedButton(onClick = { tts?.stop(); msg = ""; screen = "home" }) { Text("አዲስ ምርመራ") }
     }
 
     @Composable private fun TargetScreen() {
