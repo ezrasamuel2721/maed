@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "MAED V1.4 sample record",
+  "title": "MAED V1.7 sample record",
   "type": "object",
   "required": [
     "sample_id",
@@ -150,6 +150,22 @@
         "simulated"
       ],
       "description": "simulated never exported with real"
+    },
+    "lab_reference": {
+      "type": ["string", "null"],
+      "description": "Qualified laboratory report/reference identifier."
+    },
+    "ground_truth_method": {
+      "type": ["string", "null"],
+      "description": "Laboratory method or approved food-safety protocol used to establish ground truth."
+    },
+    "ground_truth_reference_id": {
+      "type": ["string", "null"],
+      "description": "Report ID, protocol reference ID, or other traceable ground-truth reference."
+    },
+    "evidence_storage": {
+      "type": ["string", "null"],
+      "description": "Traceable storage location/reference for verification evidence, such as a secure document URI, file path, or evidence archive ID."
     }
   }
 }
