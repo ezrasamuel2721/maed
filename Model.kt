@@ -4,10 +4,13 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import kotlin.math.sqrt
 
-/** GO ውሳኔ (blind validation) እስኪሰጥ ድረስ false ይቆያል። false ሲሆን app ምንም 🟢/🔴 verdict አይሰጥም። */
-const val MODEL_VALIDATED = false
-const val DATASET_SCHEMA_VERSION = "1.5"
+const val DATASET_SCHEMA_VERSION = "1.6"
+const val MODEL_VERSION = "MAED-SENSOR-CENTROID-1.0"
+const val MIN_SAMPLES_PER_CLASS = 20
+const val MIN_SENSITIVITY = 0.90
+const val MIN_SPECIFICITY = 0.90
 
 val GROUND_TRUTH = listOf(
     "not_yet_available" to "Not yet available",
@@ -30,7 +33,8 @@ data class Sample(
         put("bme688", voc?.let { JSONObject(it) } ?: JSONObject.NULL)
         put("ground_truth", groundTruth); put("ai_result", aiResult); put("model_version", modelVersion ?: JSONObject.NULL)
         put("model_validated", modelValidated); put("risk_score", riskScore ?: JSONObject.NULL)
-        put("sensor_status", sensorStatus); put("acquisition_status", acquisitionStatus); put("data_source", dataSource); put("lab_reference", labReference ?: JSONObject.NULL)
+        put("sensor_status", sensorStatus); put("acquisition_status", acquisitionStatus)
+        put("data_source", dataSource); put("lab_reference", labReference ?: JSONObject.NULL)
     }
 
     companion object {
@@ -42,54 +46,147 @@ data class Sample(
                 o.getString("sample_id"), o.getString("food_type"), o.getString("storage_condition"), o.getString("collected_at"),
                 d("temperature_c"), d("humidity_percent"), o.getString("rgb_image_file"), s("pi_image_file"),
                 j("as7341"), j("bme688"), o.getString("ground_truth"), o.getString("ai_result"), s("model_version"),
-                o.getBoolean("model_validated"), d("risk_score"), o.getString("sensor_status"),
+                o.optBoolean("model_validated", false), d("risk_score"), o.getString("sensor_status"),
                 o.getString("acquisition_status"), o.optString("data_source", "real"), o.optString("lab_reference", null)
             )
         }
     }
 }
 
-/** MODEL_VALIDATED=false ሲሆን ሁልጊዜ UNCERTAIN። እውነተኛ ሞዴል ከGO በኋላ እዚህ ይገናኛል። */
+data class ModelState(
+    val ready: Boolean, val version: String?, val sensitivity: Double, val specificity: Double,
+    val cleanCount: Int, val contaminatedCount: Int, val validationCount: Int, val reason: String
+)
+
+data class ClassifierResult(
+    val verdict: String, val confidence: Double?, val modelValidated: Boolean,
+    val modelVersion: String?, val reason: String
+)
+
+object FoodClassifier {
+    private const val PREF = "maed_model"
+    private const val KEY = "state"
+    private const val FEATURE_COUNT = 14
+
+    private fun features(s: Sample): DoubleArray? {
+        if (s.spectral == null || s.voc == null) return null
+        return try {
+            val sp = JSONObject(s.spectral)
+            val vo = JSONObject(s.voc)
+            val keys = arrayOf("F1_415nm","F2_445nm","F3_480nm","F4_515nm","F5_555nm","F6_590nm","F7_630nm","F8_680nm","clear","nir")
+            val out = DoubleArray(FEATURE_COUNT)
+            for (i in keys.indices) out[i] = sp.getDouble(keys[i])
+            out[10] = vo.getDouble("temperature_c")
+            out[11] = vo.getDouble("humidity_percent")
+            out[12] = vo.getDouble("pressure_hpa")
+            out[13] = vo.getDouble("gas_resistance_ohm")
+            if (out.any { !it.isFinite() }) null else out
+        } catch (_: Exception) { null }
+    }
+
+    private fun save(ctx: Context, state: JSONObject) =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putString(KEY, state.toString()).apply()
+
+    private fun load(ctx: Context): JSONObject? =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY, null)?.let { try { JSONObject(it) } catch (_: Exception) { null } }
+
+    fun state(ctx: Context): ModelState {
+        val o = load(ctx) ?: return ModelState(false, null, 0.0, 0.0, 0, 0, 0, "ምንም የተረጋገጠ ሞዴል የለም።")
+        return ModelState(o.optBoolean("ready"), o.optString("version", null), o.optDouble("sensitivity"), o.optDouble("specificity"),
+            o.optInt("clean_count"), o.optInt("contaminated_count"), o.optInt("validation_count"), o.optString("reason"))
+    }
+
+    fun trainAndValidate(ctx: Context, all: List<Sample>): ModelState {
+        val usable = all.filter { it.dataSource == "real" && it.labReference?.isNotBlank() == true &&
+            (it.groundTruth == "clean_per_protocol" || it.groundTruth == "contaminated_per_protocol") }
+            .mapNotNull { s -> features(s)?.let { s to it } }
+        val clean = usable.filter { it.first.groundTruth == "clean_per_protocol" }
+        val bad = usable.filter { it.first.groundTruth == "contaminated_per_protocol" }
+        if (clean.size < MIN_SAMPLES_PER_CLASS || bad.size < MIN_SAMPLES_PER_CLASS)
+            return ModelState(false, null, 0.0, 0.0, clean.size, bad.size, 0, "ቢያንስ $MIN_SAMPLES_PER_CLASS CLEAN እና $MIN_SAMPLES_PER_CLASS CONTAMINATED የላብ ማጣቀሻ ያላቸው ናሙናዎች ያስፈልጋሉ።")
+
+        val train = usable.filter { kotlin.math.abs(it.first.id.hashCode()) % 5 != 0 }
+        val test = usable.filter { kotlin.math.abs(it.first.id.hashCode()) % 5 == 0 }
+        if (test.none { it.first.groundTruth == "clean_per_protocol" } || test.none { it.first.groundTruth == "contaminated_per_protocol" })
+            return ModelState(false, null, 0.0, 0.0, clean.size, bad.size, test.size, "Blind validation ክፍሉ ሁለቱንም ክፍሎች አላካተተም። ተጨማሪ ናሙና ያስገቡ።")
+
+        val means = DoubleArray(FEATURE_COUNT)
+        val stds = DoubleArray(FEATURE_COUNT)
+        for (j in 0 until FEATURE_COUNT) {
+            means[j] = train.map { it.second[j] }.average()
+            val variance = train.map { val d = it.second[j] - means[j]; d*d }.average()
+            stds[j] = sqrt(variance).takeIf { it > 1e-9 } ?: 1.0
+        }
+        fun norm(x: DoubleArray) = DoubleArray(FEATURE_COUNT) { j -> (x[j] - means[j]) / stds[j] }
+        fun centroid(label: String): DoubleArray {
+            val rows = train.filter { it.first.groundTruth == label }.map { norm(it.second) }
+            return DoubleArray(FEATURE_COUNT) { j -> rows.sumOf { it[j] } / rows.size }
+        }
+        val cleanCentroid = centroid("clean_per_protocol")
+        val badCentroid = centroid("contaminated_per_protocol")
+
+        fun pred(x: DoubleArray): String {
+            val n = norm(x)
+            val dc = sqrt(n.indices.sumOf { j -> val d=n[j]-cleanCentroid[j]; d*d })
+            val db = sqrt(n.indices.sumOf { j -> val d=n[j]-badCentroid[j]; d*d })
+            return if (dc <= db) "clean_per_protocol" else "contaminated_per_protocol"
+        }
+
+        var tp=0; var tn=0; var fp=0; var fn=0
+        test.forEach { s ->
+            val p=pred(s.second)
+            if (s.first.groundTruth=="contaminated_per_protocol" && p=="contaminated_per_protocol") tp++
+            if (s.first.groundTruth=="clean_per_protocol" && p=="clean_per_protocol") tn++
+            if (s.first.groundTruth=="clean_per_protocol" && p=="contaminated_per_protocol") fp++
+            if (s.first.groundTruth=="contaminated_per_protocol" && p=="clean_per_protocol") fn++
+        }
+        val sensitivity = if (tp+fn==0) 0.0 else tp.toDouble()/(tp+fn)
+        val specificity = if (tn+fp==0) 0.0 else tn.toDouble()/(tn+fp)
+        val ready = sensitivity >= MIN_SENSITIVITY && specificity >= MIN_SPECIFICITY && fn == 0
+        if (!ready) return ModelState(false, MODEL_VERSION, sensitivity, specificity, clean.size, bad.size, test.size,
+            "Validation አልፏል አይደለም። sensitivity=$sensitivity specificity=$specificity false-negative=$fn")
+
+        save(ctx, JSONObject().apply {
+            put("ready", true); put("version", MODEL_VERSION); put("sensitivity", sensitivity); put("specificity", specificity)
+            put("clean_count", clean.size); put("contaminated_count", bad.size); put("validation_count", test.size)
+            put("reason", "Blind validation passed")
+            put("means", JSONArray(means.toList())); put("stds", JSONArray(stds.toList()))
+            put("clean_centroid", JSONArray(cleanCentroid.toList())); put("contaminated_centroid", JSONArray(badCentroid.toList()))
+        })
+        return ModelState(true, MODEL_VERSION, sensitivity, specificity, clean.size, bad.size, test.size, "Blind validation passed.")
+    }
+
+    fun predict(ctx: Context, s: Sample): ClassifierResult {
+        val o = load(ctx)
+        if (o == null || !o.optBoolean("ready")) return ClassifierResult("UNCERTAIN", null, false, null, "Validated model not ready.")
+        val x = features(s) ?: return ClassifierResult("UNCERTAIN", null, false, o.optString("version"), "Required real sensor features are missing.")
+        return try {
+            val means = DoubleArray(FEATURE_COUNT) { o.getJSONArray("means").getDouble(it) }
+            val stds = DoubleArray(FEATURE_COUNT) { o.getJSONArray("stds").getDouble(it) }
+            val c = DoubleArray(FEATURE_COUNT) { o.getJSONArray("clean_centroid").getDouble(it) }
+            val b = DoubleArray(FEATURE_COUNT) { o.getJSONArray("contaminated_centroid").getDouble(it) }
+            val n = DoubleArray(FEATURE_COUNT) { (x[it]-means[it])/stds[it] }
+            val dc=sqrt(n.indices.sumOf { j -> val d=n[j]-c[j]; d*d })
+            val db=sqrt(n.indices.sumOf { j -> val d=n[j]-b[j]; d*d })
+            val confidence = (kotlin.math.abs(db-dc)/(db+dc+1e-9)).coerceIn(0.0,1.0)
+            if (confidence < 0.20) ClassifierResult("UNCERTAIN", confidence, true, o.optString("version"), "Model margin is too small.")
+            else if (dc < db) ClassifierResult("CLEAN", confidence, true, o.optString("version"), "Validated model prediction.")
+            else ClassifierResult("CONTAMINATED", confidence, true, o.optString("version"), "Validated model prediction.")
+        } catch (_: Exception) { ClassifierResult("UNCERTAIN", null, false, o.optString("version"), "Model data invalid.") }
+    }
+}
+
 fun verdict(): String = "UNCERTAIN"
 
 class Repo(private val ctx: Context) {
     private val dir = File(ctx.filesDir, "samples").also { it.mkdirs() }
     val imgDir = File(ctx.filesDir, "images").also { it.mkdirs() }
-
-    fun all(): List<Sample> = (dir.listFiles { f -> f.extension == "json" } ?: emptyArray())
-        .mapNotNull { try { Sample.from(JSONObject(it.readText())) } catch (e: Exception) { null } }
-        .sortedByDescending { it.collectedAt }
-
+    fun all(): List<Sample> = (dir.listFiles { f -> f.extension == "json" } ?: emptyArray()).mapNotNull { try { Sample.from(JSONObject(it.readText())) } catch (_: Exception) { null } }.sortedByDescending { it.collectedAt }
     fun save(s: Sample) { File(dir, s.id + ".json").writeText(s.toJson().toString()) }
-
-    fun delete(id: String) {
-        all().find { it.id == id }?.let { File(imgDir, it.image).delete(); it.piImage?.let { p -> File(imgDir, p).delete() } }
-        File(dir, "$id.json").delete()
-    }
-
+    fun delete(id: String) { all().find { it.id == id }?.let { File(imgDir, it.image).delete(); it.piImage?.let { p -> File(imgDir, p).delete() } }; File(dir, "$id.json").delete() }
     fun setGroundTruth(id: String, gt: String) { all().find { it.id == id }?.let { save(it.copy(groundTruth = gt)) } }
-
     fun setLabReference(id: String, reference: String?) { all().find { it.id == id }?.let { save(it.copy(labReference = reference?.trim()?.ifEmpty { null })) } }
-
     private fun exportDir() = File(ctx.cacheDir, "exports").also { it.mkdirs() }
-
-    /** simulated data ከreal dataset ጋር አይቀላቀልም፤ export የሚገባው dataSource=="real" ብቻ። */
-    fun exportJson(): File {
-        val real = all().filter { it.dataSource == "real" }
-        val root = JSONObject().put("dataset", "maed").put("schema_version", DATASET_SCHEMA_VERSION)
-            .put("model_validated", MODEL_VALIDATED).put("count", real.size)
-        root.put("samples", JSONArray(real.map { it.toJson() }))
-        return File(exportDir(), "maed-dataset.json").also { it.writeText(root.toString(2)) }
-    }
-
-    fun exportCsv(): File {
-        fun e(v: Any?): String = "\"" + (v?.toString() ?: "").replace("\"", "\"\"") + "\""
-        val h = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference"
-        val rows = all().filter { it.dataSource == "real" }.map {
-            listOf(it.id, it.foodType, it.storage, it.collectedAt, it.tempC, it.humidity, it.image, it.spectral, it.voc, it.groundTruth,
-                it.aiResult, it.modelVersion, it.modelValidated, it.riskScore, it.sensorStatus, it.acquisitionStatus, it.dataSource, it.labReference)
-                .joinToString(",") { v -> e(v) }
-        }
-        return File(exportDir(), "maed-dataset.csv").also { it.writeText((listOf(h) + rows).joinToString("\n")) }
-    }
+    fun exportJson(): File { val real=all().filter { it.dataSource=="real" }; val root=JSONObject().put("dataset","maed").put("schema_version",DATASET_SCHEMA_VERSION).put("model_validated",FoodClassifier.state(ctx).ready).put("count",real.size); root.put("samples",JSONArray(real.map { it.toJson() })); return File(exportDir(),"maed-dataset.json").also { it.writeText(root.toString(2)) } }
+    fun exportCsv(): File { fun e(v:Any?)="\"" + (v?.toString()?:"").replace("\"","\"\"") + "\""; val h="sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference"; val rows=all().filter { it.dataSource=="real" }.map { listOf(it.id,it.foodType,it.storage,it.collectedAt,it.tempC,it.humidity,it.image,it.spectral,it.voc,it.groundTruth,it.aiResult,it.modelVersion,it.modelValidated,it.riskScore,it.sensorStatus,it.acquisitionStatus,it.dataSource,it.labReference).joinToString(","){v->e(v)} }; return File(exportDir(),"maed-dataset.csv").also { it.writeText((listOf(h)+rows).joinToString("\n")) } }
 }
