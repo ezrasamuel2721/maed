@@ -192,7 +192,10 @@ object FoodRiskScreening {
         return try {
             val sp = JSONObject(s.spectral)
             val vo = JSONObject(s.voc)
-            val keys = arrayOf("F1_415nm","F2_445nm","F3_480nm","F4_515nm","F5_555nm","F6_590nm","F7_630nm","F8_680nm","clear","nir")
+            val keys = arrayOf(
+                "F1_415nm", "F2_445nm", "F3_480nm", "F4_515nm", "F5_555nm",
+                "F6_590nm", "F7_630nm", "F8_680nm", "clear", "nir"
+            )
             val out = DoubleArray(FEATURE_COUNT)
             for (i in keys.indices) out[i] = sp.getDouble(keys[i])
             out[10] = vo.getDouble("temperature_c")
@@ -200,37 +203,99 @@ object FoodRiskScreening {
             out[12] = vo.getDouble("pressure_hpa")
             out[13] = vo.getDouble("gas_resistance_ohm")
             if (out.any { !it.isFinite() }) null else out
-        } catch (_: Exception) { null }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun median(values: List<Double>): Double {
+        val v = values.sorted()
+        if (v.isEmpty()) return 0.0
+        val mid = v.size / 2
+        return if (v.size % 2 == 0) (v[mid - 1] + v[mid]) / 2.0 else v[mid]
+    }
+
+    private fun robustScale(values: List<Double>): Double {
+        val m = median(values)
+        val mad = median(values.map { kotlin.math.abs(it - m) })
+        return (1.4826 * mad).takeIf { it > 1e-9 } ?: 1.0
     }
 
     fun screen(current: Sample, all: List<Sample>): ScreeningResult {
-        val x = features(current) ?: return ScreeningResult("UNAVAILABLE", null, "የAS7341/BME688 እውነተኛ መረጃ አልተሟላም።")
+        val x = features(current)
+            ?: return ScreeningResult(
+                "UNAVAILABLE", null,
+                "የAS7341/BME688 እውነተኛ መረጃ አልተሟላም።"
+            )
+
         val refs = all.filter {
             it.id != current.id &&
             it.dataSource == "real" &&
             it.foodType.equals(current.foodType, ignoreCase = true) &&
             it.storage == current.storage
         }.mapNotNull { features(it) }
-        val fallback = all.filter { it.id != current.id && it.dataSource == "real" }.mapNotNull { features(it) }
-        val rows = if (refs.size >= MIN_REFERENCE) refs else fallback
-        if (rows.size < MIN_REFERENCE)
-            return ScreeningResult("UNAVAILABLE", null, "ለscreening የሚያገለግል ቢያንስ $MIN_REFERENCE የእውነተኛ ሴንሰር መለኪያ መረጃ ያስፈልጋል።")
 
-        val mean = DoubleArray(FEATURE_COUNT) { j -> rows.map { it[j] }.average() }
-        val sd = DoubleArray(FEATURE_COUNT) { j ->
-            val v = rows.map { val d = it[j] - mean[j]; d * d }.average()
-            sqrt(v).takeIf { it > 1e-9 } ?: 1.0
+        val fallback = all.filter {
+            it.id != current.id && it.dataSource == "real"
+        }.mapNotNull { features(it) }
+
+        val rows = if (refs.size >= MIN_REFERENCE) refs else fallback
+        if (rows.size < MIN_REFERENCE) {
+            return ScreeningResult(
+                "UNAVAILABLE", null,
+                "ለscreening ቢያንስ $MIN_REFERENCE የእውነተኛ AS7341/BME688 መለኪያዎች ያስፈልጋሉ።"
+            )
         }
-        val z = DoubleArray(FEATURE_COUNT) { j -> kotlin.math.abs((x[j] - mean[j]) / sd[j]) }
-        val distance = sqrt(z.map { it * it }.average())
-        val score = (1.0 - kotlin.math.exp(-distance / 2.0)).coerceIn(0.0, 1.0)
+
+        // Robust baseline: median + MAD reduces the effect of one bad reference reading.
+        val center = DoubleArray(FEATURE_COUNT) { j -> median(rows.map { it[j] }) }
+        val scale = DoubleArray(FEATURE_COUNT) { j -> robustScale(rows.map { it[j] }) }
+
+        // Gas resistance is highly skewed; log-transform it before comparing patterns.
+        val robustZ = DoubleArray(FEATURE_COUNT) { j ->
+            val value = if (j == 13) kotlin.math.ln(x[j].coerceAtLeast(1.0)) else x[j]
+            val refValues = rows.map {
+                val v = if (j == 13) kotlin.math.ln(it[j].coerceAtLeast(1.0)) else it[j]
+                v
+            }
+            val c0 = median(refValues)
+            val s0 = robustScale(refValues)
+            kotlin.math.abs((value - c0) / s0)
+        }
+
+        // Spectral channels carry more weight; environmental/VOC channels are supporting evidence.
+        val weighted = robustZ.mapIndexed { j, z ->
+            val w = when (j) {
+                in 0..9 -> 1.0
+                10 -> 0.35
+                11 -> 0.35
+                12 -> 0.20
+                13 -> 0.75
+                else -> 1.0
+            }
+            z * z * w
+        }.average()
+
+        val distance = sqrt(weighted)
+        val score = (1.0 - kotlin.math.exp(-distance / 2.5)).coerceIn(0.0, 1.0)
         val level = when {
-            score < 0.35 -> "LOW"
-            score < 0.65 -> "MEDIUM"
+            score < 0.30 -> "LOW"
+            score < 0.60 -> "MEDIUM"
             else -> "HIGH"
         }
-        val source = if (refs.size >= MIN_REFERENCE) "ተመሳሳይ ምግብ/ማከማቻ መረጃ" else "የMAED አጠቃላይ መረጃ"
-        return ScreeningResult(level, score, "ይህ የsensor-pattern screening ነው፤ የብክለት ማረጋገጫ አይደለም። Reference: $source.")
+
+        val source = if (refs.size >= MIN_REFERENCE) {
+            "ተመሳሳይ ምግብ/ማከማቻ የreference መረጃ"
+        } else {
+            "የMAED አጠቃላይ reference መረጃ"
+        }
+
+        return ScreeningResult(
+            level,
+            score,
+            "ይህ robust sensor-pattern screening ነው፤ የብክለት ማረጋገጫ አይደለም። " +
+                "የተለየ pattern ካለ ብቻ የማስጠንቀቂያ ደረጃ ይጨምራል። Reference: $source."
+        )
     }
 }
 
