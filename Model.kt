@@ -7,12 +7,12 @@ import java.io.File
 
 /** GO ውሳኔ (blind validation) እስኪሰጥ ድረስ false ይቆያል። false ሲሆን app ምንም 🟢/🔴 verdict አይሰጥም። */
 const val MODEL_VALIDATED = false
+const val DATASET_SCHEMA_VERSION = "1.5"
 
 val GROUND_TRUTH = listOf(
     "not_yet_available" to "Not yet available",
-    "acceptable_per_protocol" to "Acceptable according to test protocol",
-    "quality_concern" to "Quality concern",
-    "unsafe_per_protocol" to "Unsafe according to test protocol"
+    "clean_per_protocol" to "CLEAN — lab/protocol confirmed",
+    "contaminated_per_protocol" to "CONTAMINATED — lab/protocol confirmed"
 )
 
 data class Sample(
@@ -20,7 +20,7 @@ data class Sample(
     val tempC: Double?, val humidity: Double?, val image: String, val piImage: String?,
     val spectral: String?, val voc: String?, val groundTruth: String,
     val aiResult: String, val modelVersion: String?, val modelValidated: Boolean, val riskScore: Double?,
-    val sensorStatus: String, val acquisitionStatus: String, val dataSource: String = "real"
+    val sensorStatus: String, val acquisitionStatus: String, val dataSource: String = "real", val labReference: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("sample_id", id); put("food_type", foodType); put("storage_condition", storage); put("collected_at", collectedAt)
@@ -30,7 +30,7 @@ data class Sample(
         put("bme688", voc?.let { JSONObject(it) } ?: JSONObject.NULL)
         put("ground_truth", groundTruth); put("ai_result", aiResult); put("model_version", modelVersion ?: JSONObject.NULL)
         put("model_validated", modelValidated); put("risk_score", riskScore ?: JSONObject.NULL)
-        put("sensor_status", sensorStatus); put("acquisition_status", acquisitionStatus); put("data_source", dataSource)
+        put("sensor_status", sensorStatus); put("acquisition_status", acquisitionStatus); put("data_source", dataSource); put("lab_reference", labReference ?: JSONObject.NULL)
     }
 
     companion object {
@@ -43,7 +43,7 @@ data class Sample(
                 d("temperature_c"), d("humidity_percent"), o.getString("rgb_image_file"), s("pi_image_file"),
                 j("as7341"), j("bme688"), o.getString("ground_truth"), o.getString("ai_result"), s("model_version"),
                 o.getBoolean("model_validated"), d("risk_score"), o.getString("sensor_status"),
-                o.getString("acquisition_status"), o.optString("data_source", "real")
+                o.getString("acquisition_status"), o.optString("data_source", "real"), o.optString("lab_reference", null)
             )
         }
     }
@@ -74,7 +74,7 @@ class Repo(private val ctx: Context) {
     /** simulated data ከreal dataset ጋር አይቀላቀልም፤ export የሚገባው dataSource=="real" ብቻ። */
     fun exportJson(): File {
         val real = all().filter { it.dataSource == "real" }
-        val root = JSONObject().put("dataset", "maed").put("schema_version", "1.4")
+        val root = JSONObject().put("dataset", "maed").put("schema_version", DATASET_SCHEMA_VERSION)
             .put("model_validated", MODEL_VALIDATED).put("count", real.size)
         root.put("samples", JSONArray(real.map { it.toJson() }))
         return File(exportDir(), "maed-dataset.json").also { it.writeText(root.toString(2)) }
@@ -82,10 +82,10 @@ class Repo(private val ctx: Context) {
 
     fun exportCsv(): File {
         fun e(v: Any?): String = "\"" + (v?.toString() ?: "").replace("\"", "\"\"") + "\""
-        val h = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source"
+        val h = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference"
         val rows = all().filter { it.dataSource == "real" }.map {
             listOf(it.id, it.foodType, it.storage, it.collectedAt, it.tempC, it.humidity, it.image, it.spectral, it.voc, it.groundTruth,
-                it.aiResult, it.modelVersion, it.modelValidated, it.riskScore, it.sensorStatus, it.acquisitionStatus, it.dataSource)
+                it.aiResult, it.modelVersion, it.modelValidated, it.riskScore, it.sensorStatus, it.acquisitionStatus, it.dataSource, it.labReference)
                 .joinToString(",") { v -> e(v) }
         }
         return File(exportDir(), "maed-dataset.csv").also { it.writeText((listOf(h) + rows).joinToString("\n")) }
