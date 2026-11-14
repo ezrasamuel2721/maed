@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) amVoice = tts.setLanguage(Locale("am", "ET")) >= TextToSpeech.LANG_AVAILABLE
+        if (status == TextToSpeech.SUCCESS) amVoice = tts?.setLanguage(Locale("am", "ET"))?.let { it >= TextToSpeech.LANG_AVAILABLE } == true
     }
 
     override fun onDestroy() { tts?.shutdown(); tts = null; super.onDestroy() }
