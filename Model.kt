@@ -160,6 +160,30 @@ object FoodClassifier {
             "Blind validation passed. Verification ID: $verificationId", fn, verificationId)
     }
 
+    fun exportVerificationCertificate(ctx: Context): File? {
+        val o = load(ctx) ?: return null
+        if (!o.optBoolean("ready")) return null
+        val f = File(ctx.cacheDir, "MAED-Verification-${o.optString("verification_id","unknown")}.json")
+        val cert = JSONObject().apply {
+            put("certificate_type", "MAED_TRUE_VERIFICATION")
+            put("verification_id", o.optString("verification_id"))
+            put("model_version", o.optString("version"))
+            put("status", "VERIFIED_MODEL")
+            put("sensitivity", o.optDouble("sensitivity"))
+            put("specificity", o.optDouble("specificity"))
+            put("false_negatives", o.optInt("false_negatives"))
+            put("clean_samples", o.optInt("clean_count"))
+            put("contaminated_samples", o.optInt("contaminated_count"))
+            put("blind_validation_samples", o.optInt("validation_count"))
+            put("issued_at", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.US).format(java.util.Date()))
+            put("scope", "Only the food classes and acquisition conditions represented by the qualified reference dataset.")
+            put("limitation", "This certificate verifies model validation against the qualified reference dataset; it is not a laboratory certificate for an individual food item.")
+            put("ground_truth_requirement", "Every training/validation sample must have qualified laboratory or approved food-safety protocol reference.")
+        }
+        f.writeText(cert.toString(2))
+        return f
+    }
+
     fun predict(ctx: Context, s: Sample): ClassifierResult {
         val o = load(ctx)
         if (o == null || !o.optBoolean("ready")) return ClassifierResult("UNCERTAIN", null, false, null, "Validated model not ready.")
