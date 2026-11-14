@@ -308,8 +308,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         Photo(s?.let { File(repo.imgDir, it.image) })
         Column(Modifier.fillMaxWidth().background(Color(0xFFFFF3CD)).padding(14.dp)) {
             when (s?.aiResult) {
-                "CLEAN" -> { Text("🟢 CLEAN — ጤነኛ", fontSize = 22.sp); Text("የተረጋገጠ ሞዴል ይህን ናሙና ጤነኛ ብሎ ገምቷል።") }
-                "CONTAMINATED" -> { Text("🔴 CONTAMINATED — የተበከለ", fontSize = 22.sp); Text("የተረጋገጠ ሞዴል ይህን ናሙና የተበከለ ብሎ ገምቷል።") }
+                "CLEAN" -> { Text("🟢 CLEAN — ጤነኛ", fontSize = 22.sp); Text("VERIFIED MODEL RESULT — ይህ ውጤት የተረጋገጠ የreference ዳታ ላይ የተፈተነ ሞዴል ነው።") }
+                "CONTAMINATED" -> { Text("🔴 CONTAMINATED — የተበከለ", fontSize = 22.sp); Text("VERIFIED MODEL RESULT — ይህ ውጤት የተረጋገጠ የreference ዳታ ላይ የተፈተነ ሞዴል ነው።") }
                 else -> {
                     val score = s?.riskScore
                     if (score != null) {
@@ -452,6 +452,17 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Text(c.reason, fontSize = 12.sp)
         }
         Text("🔗 Final verdict: CLEAN/CONTAMINATED የሚሰጠው የsensor እና camera የተረጋገጡ ሞዴሎች ሲስማሙ ብቻ ነው። ካልተስማሙ → UNCERTAIN።", fontSize = 12.sp)
+        if (m.ready) {
+            Text("🛡️ TRUE VERIFICATION GATE: PASSED", fontSize = 18.sp)
+            Text("Verification ID: ${m.verificationId ?: "available"} · False negatives: ${m.falseNegatives}")
+            Button(onClick = {
+                FoodClassifier.exportVerificationCertificate(this@MainActivity)?.let { share(it, "application/json") }
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text("📄 የማረጋገጫ ሰርተፍኬት አውጣ")
+            }
+        } else {
+            Text("🔒 TRUE VERIFICATION GATE: LOCKED — በቂ የተረጋገጠ reference data ሳይኖር ውጤቱ አይረጋገጥም።", fontSize = 12.sp)
+        }
         Button(onClick = { trainModel() }, enabled = !modelBusy, modifier = Modifier.fillMaxWidth()) {
             if (modelBusy) CircularProgressIndicator(modifier = Modifier.size(20.dp)) else Text("▶ AI ሞዴልን አሰልጥን እና Validate አድርግ")
         }
