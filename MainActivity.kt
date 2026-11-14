@@ -26,6 +26,8 @@ import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -41,7 +43,7 @@ private val DEMO = listOf(
     "Adama Fresh Kitchen — Adama: Chicken 230 ETB · Rice 140 ETB · Salad 100 ETB"
 )
 private val MENU = listOf(
-    "dataset" to "🗂️ Dataset", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት",
+    "dataset" to "🗂️ Dataset", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት", "diagnostics" to "🔧 Hardware Test",
     "🍽️ ምግብ ቤቶች" to "🍽️ ምግብ ቤቶች", "🏨 ሆቴሎች" to "🏨 ሆቴሎች", "📋 ሜኑዎች" to "📋 ሜኑዎች",
     "💰 ዋጋዎች" to "💰 ዋጋዎች", "🛒 ትዕዛዝ" to "🛒 ትዕዛዝ", "📍 በአካባቢዬ ያሉ" to "📍 በአካባቢዬ ያሉ",
     "👤 የንግድ ባለቤት መመዝገቢያ" to "👤 የንግድ ባለቤት መመዝገቢያ"
@@ -57,6 +59,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var reportPhoto by mutableStateOf<File?>(null)
     private var last by mutableStateOf<Sample?>(null)
     private var msg by mutableStateOf("")
+    private var diagnostic by mutableStateOf("")
+    private var diagnosticBusy by mutableStateOf(false)
     private var samples by mutableStateOf(listOf<Sample>())
     private var camFile: File? = null
     private var pickFor = "sample"
@@ -121,6 +125,58 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         }.start()
     }
 
+    private fun runDiagnostics() {
+        val p = getSharedPreferences("maed", MODE_PRIVATE)
+        val base = p.getString("url", "")?.trim()?.trimEnd('/') ?: ""
+        val token = p.getString("token", "") ?: ""
+        if (base.isBlank()) {
+            diagnostic = "Pi URL አልተሞላም። ወደ ⚙️ ቅንብሮች ይሂዱ።"
+            return
+        }
+        diagnosticBusy = true
+        diagnostic = ""
+        Thread {
+            try {
+                val c = URL(base + "/v1/diagnostics").openConnection() as HttpURLConnection
+                c.connectTimeout = 5000
+                c.readTimeout = 45000
+                c.setRequestProperty("X-MAED-Token", token)
+                val code = c.responseCode
+                val body = if (code == 200) c.inputStream.bufferedReader().readText() else "HTTP_$code"
+                runOnUiThread {
+                    diagnosticBusy = false
+                    diagnostic = if (code == 200) formatDiagnostic(body) else "ግንኙነት አልተሳካም፦ $body"
+                }
+                c.disconnect()
+            } catch (e: Exception) {
+                runOnUiThread {
+                    diagnosticBusy = false
+                    diagnostic = "Pi ላይ መድረስ አልተቻለም፦ ${e.javaClass.simpleName}"
+                }
+            }
+        }.start()
+    }
+
+    private fun formatDiagnostic(body: String): String {
+        return try {
+            val o = JSONObject(body)
+            val s = o.optJSONObject("sensor_status")
+            val cam = s?.optString("camera", "UNKNOWN") ?: "UNKNOWN"
+            val as7 = s?.optString("as7341", "UNKNOWN") ?: "UNKNOWN"
+            val bme = s?.optString("bme688", "UNKNOWN") ?: "UNKNOWN"
+            val elapsed = o.optDouble("elapsed_seconds", 0.0)
+            "🔧 Hardware Test\n\n" +
+                "📷 Camera: $cam\n" +
+                "🌈 AS7341: $as7\n" +
+                "🌡️ BME688: $bme\n" +
+                "⏱️ Time: ${elapsed}s\n\n" +
+                "🟡 Food verdict: UNCERTAIN\n" +
+                "ይህ ሙከራ hardware ግንኙነትን ብቻ ይፈትሻል፤ ምግብን CLEAN/CONTAMINATED አይለይም።"
+        } catch (e: Exception) {
+            "የPi diagnostic መልስ ማንበብ አልተቻለም።"
+        }
+    }
+
     private fun share(f: File, mime: String) {
         val u = FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
@@ -163,7 +219,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Box(Modifier.weight(1f).padding(16.dp)) {
                 when (screen) {
                     "home" -> Home(); "record" -> Record(); "working" -> Working(); "result" -> Result()
-                    "dataset" -> Dataset(); "settings" -> Settings(); "report" -> Report(); else -> Layer(screen)
+                    "dataset" -> Dataset(); "settings" -> Settings(); "report" -> Report(); "diagnostics" -> Diagnostics(); else -> Layer(screen)
                 }
             }
         }
@@ -252,6 +308,28 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
             }
         }
+    }
+
+    @Composable private fun Diagnostics() = Scroll {
+        Text("🔧 Hardware Test", fontSize = 22.sp)
+        Text("Raspberry Pi + Camera + AS7341 + BME688 የመገናኛ ሙከራ", fontSize = 13.sp)
+        Button(
+            onClick = { runDiagnostics() },
+            enabled = !diagnosticBusy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (diagnosticBusy) CircularProgressIndicator(modifier = Modifier.size(20.dp))
+            else Text("▶ Hardware Test ጀምር")
+        }
+        if (diagnostic.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth().background(Color(0xFFEEF4F0)).padding(14.dp)) {
+                Text(diagnostic, fontSize = 14.sp)
+            }
+        }
+        Text(
+            "⚠️ ማስታወሻ፦ Hardware Test የsensor ግንኙነትን እና እውነተኛ መለኪያ መኖሩን ይፈትሻል። የምግብ ደህንነት ውሳኔ አይሰጥም።",
+            fontSize = 12.sp
+        )
     }
 
     @Composable private fun Settings() {
