@@ -246,5 +246,24 @@ class Repo(private val ctx: Context) {
     fun setLabReference(id: String, reference: String?) { all().find { it.id == id }?.let { save(it.copy(labReference = reference?.trim()?.ifEmpty { null })) } }
     private fun exportDir() = File(ctx.cacheDir, "exports").also { it.mkdirs() }
     fun exportJson(): File { val real=all().filter { it.dataSource=="real" }; val root=JSONObject().put("dataset","maed").put("schema_version",DATASET_SCHEMA_VERSION).put("model_validated",FoodClassifier.state(ctx).ready).put("count",real.size); root.put("samples",JSONArray(real.map { it.toJson() })); return File(exportDir(),"maed-dataset.json").also { it.writeText(root.toString(2)) } }
-    fun exportCsv(): File { fun e(v:Any?)="\"" + (v?.toString()?:"").replace("\"","\"\"") + "\""; val h="sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference"; val rows=all().filter { it.dataSource=="real" }.map { listOf(it.id,it.foodType,it.storage,it.collectedAt,it.tempC,it.humidity,it.image,it.spectral,it.voc,it.groundTruth,it.aiResult,it.modelVersion,it.modelValidated,it.riskScore,it.sensorStatus,it.acquisitionStatus,it.dataSource,it.labReference).joinToString(","){v->e(v)} }; return File(exportDir(),"maed-dataset.csv").also { it.writeText((listOf(h)+rows).joinToString("\n")) } }
+    fun exportCsv(): File {
+        fun e(v: Any?): String {
+            return """ + (v?.toString() ?: "").replace(""", """") + """
+        }
+        val header = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference"
+        val rows = all()
+            .filter { it.dataSource == "real" }
+            .map { sample ->
+                listOf(
+                    sample.id, sample.foodType, sample.storage, sample.collectedAt,
+                    sample.tempC, sample.humidity, sample.image, sample.spectral,
+                    sample.voc, sample.groundTruth, sample.aiResult, sample.modelVersion,
+                    sample.modelValidated, sample.riskScore, sample.sensorStatus,
+                    sample.acquisitionStatus, sample.dataSource, sample.labReference
+                ).joinToString(",") { value -> e(value) }
+            }
+        return File(exportDir(), "maed-dataset.csv").also {
+            it.writeText((listOf(header) + rows).joinToString("\n"))
+        }
+    }
 }
