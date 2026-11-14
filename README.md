@@ -1,4 +1,4 @@
-# ማዕድ (MAED) V1.4 — Android app + Raspberry Pi acquisition service
+# ማዕድ (MAED) V1.5 — Android app + Raspberry Pi acquisition service
 
 Package: `et.maed.app` · Kotlin + Jetpack Compose · minSdk 24 / targetSdk 34.
 
@@ -9,7 +9,7 @@ Package: `et.maed.app` · Kotlin + Jetpack Compose · minSdk 24 / targetSdk 34.
 - Source code has **not been compiled** in the build environment (no Android SDK/Gradle/network). Expect to fix small compile errors on first build.
 
 ## App features
-📷 ምግብ መርምር → system camera → capture (camera closes) → preview → food type + storage → sensor acquisition from Pi → result (UNCERTAIN) + Amharic TTS (`am-ET`; if the phone lacks that voice, text only + notice). 🖼️ ፎቶ ምረጥ gallery fallback. Sample record fields: sample_id, food_type, storage_condition, collected_at, temperature, humidity, RGB image, AS7341, BME688, ground_truth, ai_result, model_version, model_validated, risk_score, sensor_status, acquisition_status, data_source. Dataset: list, count (real vs simulated), ground-truth edit (4 options, default *Not yet available*; must come from a qualified lab/food-safety protocol), delete, JSON/CSV export (share sheet; images referenced by file name). Report form (stored locally, **not sent to any authority**). ☰ ሜኑ: 7 layer items — restaurants/menus/prices show **demo data only**; hotels, orders, nearby, owner registration are placeholders.
+📷 ምግብ መርምር → system camera → capture (camera closes) → preview → food type + storage → sensor acquisition from Pi → result (UNCERTAIN) + Amharic TTS (`am-ET`; if the phone lacks that voice, text only + notice). 🖼️ ፎቶ ምረጥ gallery fallback. Sample record fields: sample_id, food_type, storage_condition, collected_at, temperature, humidity, RGB image, AS7341, BME688, ground_truth, ai_result, model_version, model_validated, risk_score, sensor_status, acquisition_status, data_source. Dataset: list, count (real vs simulated), ground-truth edit (3 options: Not yet available, CLEAN — lab/protocol confirmed, CONTAMINATED — lab/protocol confirmed; default *Not yet available*) plus lab-reference entry; both must come from a qualified lab/food-safety protocol, delete, JSON/CSV export (share sheet; images referenced by file name). Report form (stored locally, **not sent to any authority**). ☰ ሜኑ: 7 layer items — restaurants/menus/prices show **demo data only**; hotels, orders, nearby, owner registration are placeholders.
 
 ## Hardware: Pi 5 (8GB) + Camera Module 3 + AS7341 + BME688
 Wiring: AS7341 and BME688 on I2C (SDA GPIO2, SCL GPIO3, 3V3, GND; distinct addresses 0x39 / 0x76 or 0x77). Enable I2C and camera (`raspi-config`). Camera on CSI.
