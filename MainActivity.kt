@@ -332,7 +332,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     @Composable private fun ModelScreen() = Scroll {
-        val m = modelState ?: FoodClassifier.state(this)
+        val m = modelState ?: FoodClassifier.state(this@MainActivity)
         Text("🤖 MAED AI ሞዴል", fontSize = 22.sp)
         Text("Sensor baseline: AS7341 + BME688", fontSize = 13.sp)
         Text("Validated AI ሞዴል ለማሰልጠን የላብ ማጣቀሻ ያላቸው ናሙናዎች ያስፈልጋሉ። እነዚህ ከሌሉ አዲሱ Food Safety Screening ይሰራል።")
