@@ -127,7 +127,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             } catch (e: Exception) { piName = null }
             val base = Sample(id, food, storage, SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date()),
                 a.tempC, a.humidity, "$id.jpg", piName, a.spectral, a.voc, "not_yet_available",
-                "UNCERTAIN", null, false, null, a.sensorStatus, a.status, "real", null, null, null)
+                false, "UNCERTAIN", null, false, null, a.sensorStatus, a.status, "real", null, null, null)
             val sensorResult = FoodClassifier.predict(this, base)
             val cameraResult = CameraFoodClassifier.predict(this, File(repo.imgDir, "$id.jpg"))
             val fused = if (sensorResult.modelValidated && cameraResult.modelValidated &&
@@ -321,6 +321,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         val icon = when (level) { "LOW" -> "🟢"; "MEDIUM" -> "🟡"; else -> "🔴" }
                         Text("$icon $level SCREENING RISK", fontSize = 22.sp)
                         Text("Screening score: ${String.format(Locale.US, "%.2f", score)}")
+                        Text("ውጤቱ ከተመረጡ baseline መለኪያዎች ጋር ያለውን sensor-pattern ልዩነት ያሳያል።")
                         Text("⚠️ ይህ sensor-pattern screening ብቻ ነው። ምግቡ ጤነኛ ወይም የተበከለ መሆኑን አያረጋግጥም።")
                     } else {
                         Text("🟡 UNCERTAIN", fontSize = 22.sp)
@@ -427,7 +428,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Text("ከreference sensor pattern ጋር ከፍተኛ ልዩነት ተገኝቷል።")
         }
         Text("⚠️ እነዚህ ሶስቱ ደረጃዎች የብክለት ማረጋገጫ አይደሉም። በተለይ HIGH ማለት «ተበክሏል» ማለት አይደለም።", fontSize = 13.sp)
-        Text("MAED ቢያንስ 3 የእውነተኛ sensor መለኪያዎችን ከመሰብሰብ በኋላ screening ለማድረግ ይሞክራል። ተመሳሳይ ምግብና የማከማቻ ሁኔታ ካለ ያንን ይመርጣል።", fontSize = 13.sp)
+        Text("📌 በመጀመሪያ በተመሳሳይ ምግብ/ማከማቻ ሁኔታ የተለመዱ ቢያንስ 3 እውነተኛ sensor መለኪያዎችን Dataset ውስጥ Baseline ያድርጉ። ከዚያ አዲስ ናሙና ሲመረመር ከእነሱ ጋር ይነጻጸራል።", fontSize = 13.sp)
         Text("Camera image በዚህ screening engine ውስጥ ብቻውን የብክለት ማረጋገጫ አይሆንም።", fontSize = 13.sp)
     }
 
@@ -473,7 +474,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     @Composable private fun Dataset() = Scroll {
         val real = samples.count { it.dataSource == "real" }
         Text("ናሙናዎች: ${samples.size} (real: $real · simulated: ${samples.size - real})")
-        Text("Export የሚያካትተው real ብቻ ነው። Ground truth + የምርመራ ዘዴ + reference ID ካለ ብቻ ለvalidation ይቆጠራል።", fontSize = 12.sp)
+        Text("Export የሚያካትተው real ብቻ ነው። Ground truth + የምርመራ ዘዴ + reference ID ካለ ብቻ ለvalidation ይቆጠራል። Screening ግን የተመረጡ 📌 baseline ናሙናዎችን ብቻ እንደ ማነጻጸሪያ ይጠቀማል።", fontSize = 12.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { if (real > 0) share(repo.exportJson(), "application/json") }) { Text("JSON") }
             Button(onClick = { if (real > 0) share(repo.exportCsv(), "text/csv") }) { Text("CSV") }
@@ -482,6 +483,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             var open by remember { mutableStateOf(false) }
             Column(Modifier.fillMaxWidth().background(Color(0xFFEEF4F0)).padding(10.dp)) {
                 Text(s.id, fontSize = 13.sp); Text("${s.foodType} · ${s.storage} · ${s.acquisitionStatus}", fontSize = 12.sp)
+                Text(if (s.baselineReference) "📌 SCREENING BASELINE — ይህ ናሙና ለተመሳሳይ ምግብ/ማከማቻ ማነጻጸሪያ ይጠቀማል።" else "ይህ ናሙና እንደ baseline አልተመረጠም።", fontSize = 11.sp)
                 Row {
                     Box {
                         TextButton(onClick = { open = true }) { Text("GT: " + (GROUND_TRUTH.find { it.first == s.groundTruth }?.second ?: s.groundTruth), fontSize = 12.sp) }
@@ -489,7 +491,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             GROUND_TRUTH.forEach { (k, l) -> DropdownMenuItem({ Text(l) }, { open = false; repo.setGroundTruth(s.id, k); samples = repo.all() }) }
                         }
                     }
-                    TextButton(onClick = { repo.delete(s.id); samples = repo.all() }) { Text("🗑️ ሰርዝ", color = Color(0xFFB42318)) }
+                    TextButton(onClick = { repo.setBaselineReference(s.id, !s.baselineReference); samples = repo.all() }) { Text(if (s.baselineReference) "📌 Baseline አስወግድ" else "📌 Baseline አድርግ") }
+                        TextButton(onClick = { repo.delete(s.id); samples = repo.all() }) { Text("🗑️ ሰርዝ", color = Color(0xFFB42318)) }
                 }
                 var labRef by remember(s.id, s.labReference) { mutableStateOf(s.labReference ?: "") }
                 OutlinedTextField(
