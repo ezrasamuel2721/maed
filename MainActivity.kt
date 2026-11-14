@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private var modelState by mutableStateOf<ModelState?>(null)
     private var modelBusy by mutableStateOf(false)
     private var modelMessage by mutableStateOf("")
+    private var cameraState by mutableStateOf<CameraModelState?>(null)
     private var samples by mutableStateOf(listOf<Sample>())
     private var targetResult by mutableStateOf<TargetResult?>(null)
     private var targetMessage by mutableStateOf("")
@@ -81,6 +82,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
         samples = repo.all()
         modelState = FoodClassifier.state(this)
+        cameraState = CameraFoodClassifier.state(this)
         setContent { MaterialTheme { App() } }
     }
 
@@ -126,12 +128,32 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             val base = Sample(id, food, storage, SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date()),
                 a.tempC, a.humidity, "$id.jpg", piName, a.spectral, a.voc, "not_yet_available",
                 "UNCERTAIN", null, false, null, a.sensorStatus, a.status)
-            val r = FoodClassifier.predict(this, base)
-            val screening = if (r.verdict == "UNCERTAIN") FoodRiskScreening.screen(base, repo.all()) else ScreeningResult("MODEL", r.confidence, "Validated model result.")
-            val s = base.copy(aiResult = r.verdict, modelVersion = r.modelVersion, modelValidated = r.modelValidated, riskScore = r.confidence ?: screening.score)
+            val sensorResult = FoodClassifier.predict(this, base)
+            val cameraResult = CameraFoodClassifier.predict(this, File(repo.imgDir, "$id.jpg"))
+            val fused = if (sensorResult.modelValidated && cameraResult.modelValidated &&
+                (sensorResult.verdict == "CLEAN" || sensorResult.verdict == "CONTAMINATED") &&
+                sensorResult.verdict == cameraResult.verdict) {
+                ClassifierResult(sensorResult.verdict,
+                    listOfNotNull(sensorResult.confidence, cameraResult.confidence).minOrNull(),
+                    true, "MAED-FUSION-1.0", "Sensor + camera models agreed.")
+            } else {
+                ClassifierResult("UNCERTAIN", null, false, null,
+                    "Sensor/camera validation or agreement is insufficient.")
+            }
+            val screening = if (fused.verdict == "UNCERTAIN") FoodRiskScreening.screen(base, repo.all())
+            else ScreeningResult("FUSION", fused.confidence, fused.reason)
+            val s = base.copy(aiResult = fused.verdict, modelVersion = fused.modelVersion,
+                modelValidated = fused.modelValidated, riskScore = fused.confidence ?: screening.score)
             repo.save(s)
-            runOnUiThread { last = s; samples = repo.all(); modelState = FoodClassifier.state(this); screen = "result"; speak(if (r.verdict == "CLEAN") "ማዕድ፦ ሞዴሉ ጤነኛ ብሎ ገምቷል።" else if (r.verdict == "CONTAMINATED") "ማዕድ፦ ሞዴሉ የተበከለ ብሎ ገምቷል።" else VOICE_UNCERTAIN) }
-        }.start()
+            runOnUiThread {
+                last = s; samples = repo.all()
+                modelState = FoodClassifier.state(this)
+                cameraState = CameraFoodClassifier.state(this)
+                screen = "result"
+                speak(if (fused.verdict == "CLEAN") "ማዕድ፦ ካሜራና ሴንሰር ሞዴሎች ተስማምተው ጤነኛ ብለዋል።"
+                    else if (fused.verdict == "CONTAMINATED") "ማዕድ፦ ካሜራና ሴንሰር ሞዴሎች ተስማምተው የተበከለ ብለዋል።"
+                    else VOICE_UNCERTAIN)
+            }        }.start()
     }
 
     private fun trainModel() {
@@ -139,11 +161,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         modelBusy = true
         modelMessage = ""
         Thread {
-            val result = FoodClassifier.trainAndValidate(this, repo.all())
+            val all = repo.all()
+            val result = FoodClassifier.trainAndValidate(this, all)
+            val cam = CameraFoodClassifier.trainAndValidate(this, all)
             runOnUiThread {
                 modelState = result
+                cameraState = cam
                 modelBusy = false
-                modelMessage = result.reason
+                modelMessage = result.reason + "\n" + cam.reason
             }
         }.start()
     }
@@ -410,7 +435,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         val m = modelState ?: FoodClassifier.state(this@MainActivity)
         Text("🤖 MAED AI ሞዴል", fontSize = 22.sp)
         Text("Sensor baseline: AS7341 + BME688", fontSize = 13.sp)
-        Text("Validated AI ሞዴል ለማሰልጠን የላብ ማጣቀሻ ያላቸው ናሙናዎች ያስፈልጋሉ። እነዚህ ከሌሉ አዲሱ Food Safety Screening ይሰራል።")
+        Text("Camera model: visible-appearance features", fontSize = 13.sp)
+        Text("Validated AI ሞዴል ለማሰልጠን የላብ ማጣቀሻ ያላቸው ናሙናዎች ያስፈልጋሉ። ካሜራው የሚያየውን የመልክ ልዩነት ብቻ ይማራል፤ የማይታይ ብክለትን በካሜራ ብቻ አያረጋግጥም።")
         Column(Modifier.fillMaxWidth().background(Color(0xFFEEF4F0)).padding(14.dp)) {
             Text(if (m.ready) "🟢 MODEL READY" else "🟡 MODEL NOT READY", fontSize = 20.sp)
             Text("CLEAN: " + m.cleanCount + " · CONTAMINATED: " + m.contaminatedCount + " · validation: " + m.validationCount)
@@ -418,6 +444,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Text("Specificity: " + m.specificity)
             Text(m.reason, fontSize = 12.sp)
         }
+        val c = cameraState ?: CameraFoodClassifier.state(this@MainActivity)
+        Column(Modifier.fillMaxWidth().background(Color(0xFFF4F0E8)).padding(14.dp)) {
+            Text(if (c.ready) "🟢 CAMERA MODEL READY" else "🟡 CAMERA MODEL NOT READY", fontSize = 20.sp)
+            Text("CLEAN: ${c.cleanCount} · CONTAMINATED: ${c.contaminatedCount} · validation: ${c.validationCount}")
+            Text("Sensitivity: ${c.sensitivity} · Specificity: ${c.specificity}")
+            Text(c.reason, fontSize = 12.sp)
+        }
+        Text("🔗 Final verdict: CLEAN/CONTAMINATED የሚሰጠው የsensor እና camera የተረጋገጡ ሞዴሎች ሲስማሙ ብቻ ነው። ካልተስማሙ → UNCERTAIN።", fontSize = 12.sp)
         Button(onClick = { trainModel() }, enabled = !modelBusy, modifier = Modifier.fillMaxWidth()) {
             if (modelBusy) CircularProgressIndicator(modifier = Modifier.size(20.dp)) else Text("▶ AI ሞዴልን አሰልጥን እና Validate አድርግ")
         }
