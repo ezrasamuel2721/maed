@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.io.File
 import kotlin.math.sqrt
 
-const val DATASET_SCHEMA_VERSION = "1.6"
+const val DATASET_SCHEMA_VERSION = "1.7"
 const val MODEL_VERSION = "MAED-SENSOR-CENTROID-1.1-VERIFIED"
 const val MIN_SAMPLES_PER_CLASS = 20
 const val MIN_SENSITIVITY = 0.90
@@ -23,7 +23,7 @@ data class Sample(
     val tempC: Double?, val humidity: Double?, val image: String, val piImage: String?,
     val spectral: String?, val voc: String?, val groundTruth: String,
     val aiResult: String, val modelVersion: String?, val modelValidated: Boolean, val riskScore: Double?,
-    val sensorStatus: String, val acquisitionStatus: String, val dataSource: String = "real", val labReference: String? = null, val groundTruthMethod: String? = null, val groundTruthReferenceId: String? = null
+    val sensorStatus: String, val acquisitionStatus: String, val dataSource: String = "real", val labReference: String? = null, val groundTruthMethod: String? = null, val groundTruthReferenceId: String? = null, val evidenceStorage: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("sample_id", id); put("food_type", foodType); put("storage_condition", storage); put("collected_at", collectedAt)
@@ -34,7 +34,7 @@ data class Sample(
         put("ground_truth", groundTruth); put("ai_result", aiResult); put("model_version", modelVersion ?: JSONObject.NULL)
         put("model_validated", modelValidated); put("risk_score", riskScore ?: JSONObject.NULL)
         put("sensor_status", sensorStatus); put("acquisition_status", acquisitionStatus)
-        put("data_source", dataSource); put("lab_reference", labReference ?: JSONObject.NULL); put("ground_truth_method", groundTruthMethod ?: JSONObject.NULL); put("ground_truth_reference_id", groundTruthReferenceId ?: JSONObject.NULL)
+        put("data_source", dataSource); put("lab_reference", labReference ?: JSONObject.NULL); put("ground_truth_method", groundTruthMethod ?: JSONObject.NULL); put("ground_truth_reference_id", groundTruthReferenceId ?: JSONObject.NULL); put("evidence_storage", evidenceStorage ?: JSONObject.NULL)
     }
 
     companion object {
@@ -47,7 +47,7 @@ data class Sample(
                 d("temperature_c"), d("humidity_percent"), o.getString("rgb_image_file"), s("pi_image_file"),
                 j("as7341"), j("bme688"), o.getString("ground_truth"), o.getString("ai_result"), s("model_version"),
                 o.optBoolean("model_validated", false), d("risk_score"), o.getString("sensor_status"),
-                o.getString("acquisition_status"), o.optString("data_source", "real"), o.optString("lab_reference", null), o.optString("ground_truth_method", null), o.optString("ground_truth_reference_id", null)
+                o.getString("acquisition_status"), o.optString("data_source", "real"), o.optString("lab_reference", null), o.optString("ground_truth_method", null), o.optString("ground_truth_reference_id", null), o.optString("evidence_storage", null)
             )
         }
     }
@@ -99,7 +99,7 @@ object FoodClassifier {
 
     fun trainAndValidate(ctx: Context, all: List<Sample>): ModelState {
         val usable = all.filter { it.dataSource == "real" && it.labReference?.isNotBlank() == true &&
-            it.groundTruthMethod?.isNotBlank() == true && it.groundTruthReferenceId?.isNotBlank() == true &&
+            it.groundTruthMethod?.isNotBlank() == true && it.groundTruthReferenceId?.isNotBlank() == true && it.evidenceStorage?.isNotBlank() == true &&
             (it.groundTruth == "clean_per_protocol" || it.groundTruth == "contaminated_per_protocol") }
             .mapNotNull { s -> features(s)?.let { s to it } }
         val clean = usable.filter { it.first.groundTruth == "clean_per_protocol" }
@@ -338,14 +338,14 @@ class Repo(private val ctx: Context) {
     fun delete(id: String) { all().find { it.id == id }?.let { File(imgDir, it.image).delete(); it.piImage?.let { p -> File(imgDir, p).delete() } }; File(dir, "$id.json").delete() }
     fun setGroundTruth(id: String, gt: String) { all().find { it.id == id }?.let { save(it.copy(groundTruth = gt)) } }
     fun setLabReference(id: String, reference: String?) { all().find { it.id == id }?.let { save(it.copy(labReference = reference?.trim()?.ifEmpty { null })) } }
-    fun setGroundTruthEvidence(id: String, method: String?, referenceId: String?) { all().find { it.id == id }?.let { save(it.copy(groundTruthMethod = method?.trim()?.ifEmpty { null }, groundTruthReferenceId = referenceId?.trim()?.ifEmpty { null })) } }
+    fun setGroundTruthEvidence(id: String, method: String?, referenceId: String?, evidence: String?) { all().find { it.id == id }?.let { save(it.copy(groundTruthMethod = method?.trim()?.ifEmpty { null }, groundTruthReferenceId = referenceId?.trim()?.ifEmpty { null }, evidenceStorage = evidence?.trim()?.ifEmpty { null })) } }
     private fun exportDir() = File(ctx.cacheDir, "exports").also { it.mkdirs() }
     fun exportJson(): File { val real=all().filter { it.dataSource=="real" }; val root=JSONObject().put("dataset","maed").put("schema_version",DATASET_SCHEMA_VERSION).put("model_validated",FoodClassifier.state(ctx).ready).put("count",real.size); root.put("samples",JSONArray(real.map { it.toJson() })); return File(exportDir(),"maed-dataset.json").also { it.writeText(root.toString(2)) } }
     fun exportCsv(): File {
         fun e(v: Any?): String {
             return "\"" + (v?.toString() ?: "").replace("\"", "\"\"") + "\""
         }
-        val header = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference,ground_truth_method,ground_truth_reference_id"
+        val header = "sample_id,food_type,storage_condition,collected_at,temperature_c,humidity_percent,rgb_image_file,as7341_json,bme688_json,ground_truth,ai_result,model_version,model_validated,risk_score,sensor_status,acquisition_status,data_source,lab_reference,ground_truth_method,ground_truth_reference_id,evidence_storage"
         val rows = all()
             .filter { it.dataSource == "real" }
             .map { sample ->
@@ -354,7 +354,7 @@ class Repo(private val ctx: Context) {
                     sample.tempC, sample.humidity, sample.image, sample.spectral,
                     sample.voc, sample.groundTruth, sample.aiResult, sample.modelVersion,
                     sample.modelValidated, sample.riskScore, sample.sensorStatus,
-                    sample.acquisitionStatus, sample.dataSource, sample.labReference, sample.groundTruthMethod, sample.groundTruthReferenceId
+                    sample.acquisitionStatus, sample.dataSource, sample.labReference, sample.groundTruthMethod, sample.groundTruthReferenceId, sample.evidenceStorage
                 ).joinToString(",") { value -> e(value) }
             }
         return File(exportDir(), "maed-dataset.csv").also {
