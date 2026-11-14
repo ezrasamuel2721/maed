@@ -44,4 +44,4 @@ Pipeline: Sample → Dataset → qualified-lab ground truth → training → bli
 ## Build
 The repository contains a GitHub Actions Android build workflow. The APK is produced by the successful workflow after each push to `main`.
 
-<!-- build trigger: 2026-11-14T19:53+03:00 -->
+<!-- build trigger: 2026-11-14T20:00+03:00 -->
