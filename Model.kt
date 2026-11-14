@@ -69,6 +69,8 @@ class Repo(private val ctx: Context) {
 
     fun setGroundTruth(id: String, gt: String) { all().find { it.id == id }?.let { save(it.copy(groundTruth = gt)) } }
 
+    fun setLabReference(id: String, reference: String?) { all().find { it.id == id }?.let { save(it.copy(labReference = reference?.trim()?.ifEmpty { null })) } }
+
     private fun exportDir() = File(ctx.cacheDir, "exports").also { it.mkdirs() }
 
     /** simulated data ከreal dataset ጋር አይቀላቀልም፤ export የሚገባው dataSource=="real" ብቻ። */
