@@ -36,6 +36,8 @@ jobs:
           cp MainActivity.kt app/src/main/java/et/maed/app/MainActivity.kt
           cp Model.kt app/src/main/java/et/maed/app/Model.kt
           cp Sensor.kt app/src/main/java/et/maed/app/Sensor.kt
+          cp CameraFoodClassifier.kt app/src/main/java/et/maed/app/CameraFoodClassifier.kt
+          cp TargetDetection.kt app/src/main/java/et/maed/app/TargetDetection.kt
 
           cp AndroidManifest.xml app/src/main/AndroidManifest.xml
           cp strings.xml app/src/main/res/values/strings.xml
