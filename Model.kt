@@ -94,7 +94,7 @@ object FoodClassifier {
     fun state(ctx: Context): ModelState {
         val o = load(ctx) ?: return ModelState(false, null, 0.0, 0.0, 0, 0, 0, "ምንም የተረጋገጠ ሞዴል የለም።")
         return ModelState(o.optBoolean("ready"), o.optString("version", null), o.optDouble("sensitivity"), o.optDouble("specificity"),
-            o.optInt("clean_count"), o.optInt("contaminated_count"), o.optInt("validation_count"), o.optString("reason"))
+            o.optInt("clean_count"), o.optInt("contaminated_count"), o.optInt("validation_count"), o.optString("reason"), o.optInt("false_negatives", 0), o.optString("verification_id", null))
     }
 
     fun trainAndValidate(ctx: Context, all: List<Sample>): ModelState {
@@ -145,16 +145,19 @@ object FoodClassifier {
         val specificity = if (tn+fp==0) 0.0 else tn.toDouble()/(tn+fp)
         val ready = sensitivity >= MIN_SENSITIVITY && specificity >= MIN_SPECIFICITY && fn == 0
         if (!ready) return ModelState(false, MODEL_VERSION, sensitivity, specificity, clean.size, bad.size, test.size,
-            "Validation አልፏል አይደለም። sensitivity=$sensitivity specificity=$specificity false-negative=$fn")
+            "Validation አልፏል አይደለም። sensitivity=$sensitivity specificity=$specificity false-negative=$fn", fn)
 
+        val verificationId = "MAED-VERIFIED-" + System.currentTimeMillis().toString()
         save(ctx, JSONObject().apply {
             put("ready", true); put("version", MODEL_VERSION); put("sensitivity", sensitivity); put("specificity", specificity)
             put("clean_count", clean.size); put("contaminated_count", bad.size); put("validation_count", test.size)
+            put("false_negatives", fn); put("verification_id", verificationId)
             put("reason", "Blind validation passed")
             put("means", JSONArray(means.toList())); put("stds", JSONArray(stds.toList()))
             put("clean_centroid", JSONArray(cleanCentroid.toList())); put("contaminated_centroid", JSONArray(badCentroid.toList()))
         })
-        return ModelState(true, MODEL_VERSION, sensitivity, specificity, clean.size, bad.size, test.size, "Blind validation passed.")
+        return ModelState(true, MODEL_VERSION, sensitivity, specificity, clean.size, bad.size, test.size,
+            "Blind validation passed. Verification ID: $verificationId", fn, verificationId)
     }
 
     fun predict(ctx: Context, s: Sample): ClassifierResult {
