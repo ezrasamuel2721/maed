@@ -176,6 +176,64 @@ object FoodClassifier {
     }
 }
 
+
+data class ScreeningResult(
+    val level: String,
+    val score: Double?,
+    val reason: String
+)
+
+object FoodRiskScreening {
+    private const val MIN_REFERENCE = 3
+    private const val FEATURE_COUNT = 14
+
+    private fun features(s: Sample): DoubleArray? {
+        if (s.spectral == null || s.voc == null) return null
+        return try {
+            val sp = JSONObject(s.spectral)
+            val vo = JSONObject(s.voc)
+            val keys = arrayOf("F1_415nm","F2_445nm","F3_480nm","F4_515nm","F5_555nm","F6_590nm","F7_630nm","F8_680nm","clear","nir")
+            val out = DoubleArray(FEATURE_COUNT)
+            for (i in keys.indices) out[i] = sp.getDouble(keys[i])
+            out[10] = vo.getDouble("temperature_c")
+            out[11] = vo.getDouble("humidity_percent")
+            out[12] = vo.getDouble("pressure_hpa")
+            out[13] = vo.getDouble("gas_resistance_ohm")
+            if (out.any { !it.isFinite() }) null else out
+        } catch (_: Exception) { null }
+    }
+
+    fun screen(current: Sample, all: List<Sample>): ScreeningResult {
+        val x = features(current) ?: return ScreeningResult("UNAVAILABLE", null, "የAS7341/BME688 እውነተኛ መረጃ አልተሟላም።")
+        val refs = all.filter {
+            it.id != current.id &&
+            it.dataSource == "real" &&
+            it.foodType.equals(current.foodType, ignoreCase = true) &&
+            it.storage == current.storage
+        }.mapNotNull { features(it) }
+        val fallback = all.filter { it.id != current.id && it.dataSource == "real" }.mapNotNull { features(it) }
+        val rows = if (refs.size >= MIN_REFERENCE) refs else fallback
+        if (rows.size < MIN_REFERENCE)
+            return ScreeningResult("UNAVAILABLE", null, "ለscreening የሚያገለግል ቢያንስ $MIN_REFERENCE የእውነተኛ ሴንሰር መለኪያ መረጃ ያስፈልጋል።")
+
+        val mean = DoubleArray(FEATURE_COUNT) { j -> rows.map { it[j] }.average() }
+        val sd = DoubleArray(FEATURE_COUNT) { j ->
+            val v = rows.map { val d = it[j] - mean[j]; d * d }.average()
+            sqrt(v).takeIf { it > 1e-9 } ?: 1.0
+        }
+        val z = DoubleArray(FEATURE_COUNT) { j -> kotlin.math.abs((x[j] - mean[j]) / sd[j]) }
+        val distance = sqrt(z.map { it * it }.average())
+        val score = (1.0 - kotlin.math.exp(-distance / 2.0)).coerceIn(0.0, 1.0)
+        val level = when {
+            score < 0.35 -> "LOW"
+            score < 0.65 -> "MEDIUM"
+            else -> "HIGH"
+        }
+        val source = if (refs.size >= MIN_REFERENCE) "ተመሳሳይ ምግብ/ማከማቻ መረጃ" else "የMAED አጠቃላይ መረጃ"
+        return ScreeningResult(level, score, "ይህ የsensor-pattern screening ነው፤ የብክለት ማረጋገጫ አይደለም። Reference: $source.")
+    }
+}
+
 fun verdict(): String = "UNCERTAIN"
 
 class Repo(private val ctx: Context) {
