@@ -7,7 +7,7 @@ import java.io.File
 import kotlin.math.sqrt
 
 const val DATASET_SCHEMA_VERSION = "1.6"
-const val MODEL_VERSION = "MAED-SENSOR-CENTROID-1.0"
+const val MODEL_VERSION = "MAED-SENSOR-CENTROID-1.1-VERIFIED"
 const val MIN_SAMPLES_PER_CLASS = 20
 const val MIN_SENSITIVITY = 0.90
 const val MIN_SPECIFICITY = 0.90
@@ -55,7 +55,8 @@ data class Sample(
 
 data class ModelState(
     val ready: Boolean, val version: String?, val sensitivity: Double, val specificity: Double,
-    val cleanCount: Int, val contaminatedCount: Int, val validationCount: Int, val reason: String
+    val cleanCount: Int, val contaminatedCount: Int, val validationCount: Int, val reason: String,
+    val falseNegatives: Int = 0, val verificationId: String? = null
 )
 
 data class ClassifierResult(
