@@ -43,7 +43,7 @@ private val DEMO = listOf(
     "Adama Fresh Kitchen — Adama: Chicken 230 ETB · Rice 140 ETB · Salad 100 ETB"
 )
 private val MENU = listOf(
-    "dataset" to "🗂️ Dataset", "model" to "🤖 AI ሞዴል", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት", "diagnostics" to "🔧 Hardware Test",
+    "dataset" to "🗂️ Dataset", "model" to "🤖 AI ሞዴል", "screening" to "🛡️ Food Safety Screening", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት", "diagnostics" to "🔧 Hardware Test",
     "🍽️ ምግብ ቤቶች" to "🍽️ ምግብ ቤቶች", "🏨 ሆቴሎች" to "🏨 ሆቴሎች", "📋 ሜኑዎች" to "📋 ሜኑዎች",
     "💰 ዋጋዎች" to "💰 ዋጋዎች", "🛒 ትዕዛዝ" to "🛒 ትዕዛዝ", "📍 በአካባቢዬ ያሉ" to "📍 በአካባቢዬ ያሉ",
     "👤 የንግድ ባለቤት መመዝገቢያ" to "👤 የንግድ ባለቤት መመዝገቢያ"
@@ -125,7 +125,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 a.tempC, a.humidity, "$id.jpg", piName, a.spectral, a.voc, "not_yet_available",
                 "UNCERTAIN", null, false, null, a.sensorStatus, a.status)
             val r = FoodClassifier.predict(this, base)
-            val s = base.copy(aiResult = r.verdict, modelVersion = r.modelVersion, modelValidated = r.modelValidated, riskScore = r.confidence)
+            val screening = if (r.verdict == "UNCERTAIN") FoodRiskScreening.screen(base, repo.all()) else ScreeningResult("MODEL", r.confidence, "Validated model result.")
+            val s = base.copy(aiResult = r.verdict, modelVersion = r.modelVersion, modelValidated = r.modelValidated, riskScore = r.confidence ?: screening.score)
             repo.save(s)
             runOnUiThread { last = s; samples = repo.all(); modelState = FoodClassifier.state(this); screen = "result"; speak(if (r.verdict == "CLEAN") "ማዕድ፦ ሞዴሉ ጤነኛ ብሎ ገምቷል።" else if (r.verdict == "CONTAMINATED") "ማዕድ፦ ሞዴሉ የተበከለ ብሎ ገምቷል።" else VOICE_UNCERTAIN) }
         }.start()
@@ -239,7 +240,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             Box(Modifier.weight(1f).padding(16.dp)) {
                 when (screen) {
                     "home" -> Home(); "record" -> Record(); "working" -> Working(); "result" -> Result()
-                    "dataset" -> Dataset(); "model" -> ModelScreen(); "settings" -> Settings(); "report" -> Report(); "diagnostics" -> Diagnostics(); else -> Layer(screen)
+                    "dataset" -> Dataset(); "model" -> ModelScreen(); "screening" -> ScreeningInfo(); "settings" -> Settings(); "report" -> Report(); "diagnostics" -> Diagnostics(); else -> Layer(screen)
                 }
             }
         }
@@ -252,7 +253,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         Text("ምግብህን ከመመገብህ በፊት መርምር")
         OutlinedButton(onClick = { msg = ""; pickFor = "sample"; pick.launch("image/*") }, Modifier.fillMaxWidth()) { Text("🖼️ ፎቶ ምረጥ") }
         if (msg.isNotEmpty()) Text(msg, color = Color(0xFFB42318))
-        Text("ማዕድ የመረጃ መሰብሰቢያ ፕሮቶታይፕ ነው። የምግብ ደህንነት ሞዴል አልተረጋገጠም፤ ስለዚህ ምግብን «ደህንነቱ የተጠበቀ» ወይም «አደገኛ» ብሎ አይፈርድም። ካሜራ ብቻ ተላላፊ በሽታን አያረጋግጥም።", fontSize = 13.sp)
+        Text("ማዕድ አሁን ሁለት ደረጃ አለው፦ ① validated AI ካለ CLEAN/CONTAMINATED ሊገምት ይችላል፤ ② ላብ ሳይኖር Food Safety Screening የsensor-pattern ልዩነትን LOW/MEDIUM/HIGH ብሎ ያሳያል። Screening የብክለት ማረጋገጫ አይደለም።", fontSize = 13.sp)
     }
 
     @Composable private fun Record() {
@@ -282,7 +283,23 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             when (s?.aiResult) {
                 "CLEAN" -> { Text("🟢 CLEAN — ጤነኛ", fontSize = 22.sp); Text("የተረጋገጠ ሞዴል ይህን ናሙና ጤነኛ ብሎ ገምቷል።") }
                 "CONTAMINATED" -> { Text("🔴 CONTAMINATED — የተበከለ", fontSize = 22.sp); Text("የተረጋገጠ ሞዴል ይህን ናሙና የተበከለ ብሎ ገምቷል።") }
-                else -> { Text("🟡 UNCERTAIN", fontSize = 22.sp); Text(TEXT_UNCERTAIN) }
+                else -> {
+                    val score = s?.riskScore
+                    if (score != null) {
+                        val level = when {
+                            score < 0.35 -> "LOW"
+                            score < 0.65 -> "MEDIUM"
+                            else -> "HIGH"
+                        }
+                        val icon = when (level) { "LOW" -> "🟢"; "MEDIUM" -> "🟡"; else -> "🔴" }
+                        Text("$icon $level SCREENING RISK", fontSize = 22.sp)
+                        Text("Screening score: ${String.format(Locale.US, "%.2f", score)}")
+                        Text("⚠️ ይህ sensor-pattern screening ብቻ ነው። ምግቡ ጤነኛ ወይም የተበከለ መሆኑን አያረጋግጥም።")
+                    } else {
+                        Text("🟡 UNCERTAIN", fontSize = 22.sp)
+                        Text(TEXT_UNCERTAIN)
+                    }
+                }
             }
         }
         if (s != null) {
@@ -296,11 +313,29 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         OutlinedButton(onClick = { tts.stop(); msg = ""; screen = "home" }) { Text("አዲስ ምርመራ") }
     }
 
+    @Composable private fun ScreeningInfo() = Scroll {
+        Text("🛡️ Food Safety Screening", fontSize = 22.sp)
+        Text("ላብራቶሪ ውጤት ሳይኖር የምንጠቀመው የመጀመሪያ ደረጃ screening ነው።", fontSize = 14.sp)
+        Column(Modifier.fillMaxWidth().background(Color(0xFFEEF4F0)).padding(14.dp)) {
+            Text("🟢 LOW", fontSize = 18.sp)
+            Text("የsensor pattern ከMAED reference data ጋር በቅርበት ተገኝቷል።")
+            Spacer(Modifier.height(6.dp))
+            Text("🟡 MEDIUM", fontSize = 18.sp)
+            Text("መካከለኛ ልዩነት ተገኝቷል።")
+            Spacer(Modifier.height(6.dp))
+            Text("🔴 HIGH", fontSize = 18.sp)
+            Text("ከreference sensor pattern ጋር ከፍተኛ ልዩነት ተገኝቷል።")
+        }
+        Text("⚠️ እነዚህ ሶስቱ ደረጃዎች የብክለት ማረጋገጫ አይደሉም። በተለይ HIGH ማለት «ተበክሏል» ማለት አይደለም።", fontSize = 13.sp)
+        Text("MAED ቢያንስ 3 የእውነተኛ sensor መለኪያዎችን ከመሰብሰብ በኋላ screening ለማድረግ ይሞክራል። ተመሳሳይ ምግብና የማከማቻ ሁኔታ ካለ ያንን ይመርጣል።", fontSize = 13.sp)
+        Text("Camera image በዚህ screening engine ውስጥ ብቻውን የብክለት ማረጋገጫ አይሆንም።", fontSize = 13.sp)
+    }
+
     @Composable private fun ModelScreen() = Scroll {
         val m = modelState ?: FoodClassifier.state(this)
         Text("🤖 MAED AI ሞዴል", fontSize = 22.sp)
         Text("Sensor baseline: AS7341 + BME688", fontSize = 13.sp)
-        Text("ይህ ሞዴል የሚሰራው በላብራቶሪ የተረጋገጠ CLEAN/CONTAMINATED ናሙና ላይ ብቻ ነው።")
+        Text("Validated AI ሞዴል ለማሰልጠን የላብ ማጣቀሻ ያላቸው ናሙናዎች ያስፈልጋሉ። እነዚህ ከሌሉ አዲሱ Food Safety Screening ይሰራል።")
         Column(Modifier.fillMaxWidth().background(Color(0xFFEEF4F0)).padding(14.dp)) {
             Text(if (m.ready) "🟢 MODEL READY" else "🟡 MODEL NOT READY", fontSize = 20.sp)
             Text("CLEAN: " + m.cleanCount + " · CONTAMINATED: " + m.contaminatedCount + " · validation: " + m.validationCount)
