@@ -108,9 +108,9 @@ object TargetDetector {
             sd[j]=(train.map{val d=it.second[j]-mean[j];d*d}.average()).let{sqrt(it).takeIf{v->v>1e-9}?:1.0}
         }
         fun norm(x:DoubleArray)=DoubleArray(FEATURE_COUNT){j->(x[j]-mean[j])/sd[j]}
-        fun centroid(p:Boolean)=DoubleArray(FEATURE_COUNT){
+        fun centroid(p:Boolean): DoubleArray {
             val rows=train.filter{it.first.present==p}.map{norm(it.second)}
-            DoubleArray(FEATURE_COUNT){j->rows.fold(0.0){acc,row->acc+row[j]}/rows.size.toDouble()}
+            return DoubleArray(FEATURE_COUNT){j->rows.fold(0.0){acc,row->acc+row[j]}/rows.size.toDouble()}
         }
         val pc=centroid(true); val ac=centroid(false)
         fun pred(x:DoubleArray):Boolean{
