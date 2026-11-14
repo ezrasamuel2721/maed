@@ -505,6 +505,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 }
                 var gtMethod by remember(s.id, s.groundTruthMethod) { mutableStateOf(s.groundTruthMethod ?: "") }
                 var gtRef by remember(s.id, s.groundTruthReferenceId) { mutableStateOf(s.groundTruthReferenceId ?: "") }
+                var evidence by remember(s.id, s.evidenceStorage) { mutableStateOf(s.evidenceStorage ?: "") }
                 OutlinedTextField(
                     value = gtMethod,
                     onValueChange = { gtMethod = it },
@@ -521,7 +522,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedButton(onClick = { repo.setGroundTruthEvidence(s.id, gtMethod, gtRef); samples = repo.all() }) {
+                OutlinedTextField(
+                    value = evidence,
+                    onValueChange = { evidence = it },
+                    label = { Text("የማስረጃ ማከማቻ") },
+                    supportingText = { Text("ለምሳሌ secure lab file / report archive / approved repository") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedButton(onClick = { repo.setGroundTruthEvidence(s.id, gtMethod, gtRef, evidence); samples = repo.all() }) {
                     Text("🧾 የማረጋገጫ ማስረጃ አስቀምጥ")
                 }
             }
