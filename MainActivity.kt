@@ -127,7 +127,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             } catch (e: Exception) { piName = null }
             val base = Sample(id, food, storage, SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date()),
                 a.tempC, a.humidity, "$id.jpg", piName, a.spectral, a.voc, "not_yet_available",
-                "UNCERTAIN", null, false, null, a.sensorStatus, a.status)
+                "UNCERTAIN", null, false, null, a.sensorStatus, a.status, "real", null, null, null)
             val sensorResult = FoodClassifier.predict(this, base)
             val cameraResult = CameraFoodClassifier.predict(this, File(repo.imgDir, "$id.jpg"))
             val fused = if (sensorResult.modelValidated && cameraResult.modelValidated &&
@@ -473,7 +473,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     @Composable private fun Dataset() = Scroll {
         val real = samples.count { it.dataSource == "real" }
         Text("ናሙናዎች: ${samples.size} (real: $real · simulated: ${samples.size - real})")
-        Text("Export የሚያካትተው real ብቻ ነው። Ground truth ከብቁ lab/food-safety protocol ብቻ።", fontSize = 12.sp)
+        Text("Export የሚያካትተው real ብቻ ነው። Ground truth + የምርመራ ዘዴ + reference ID ካለ ብቻ ለvalidation ይቆጠራል።", fontSize = 12.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { if (real > 0) share(repo.exportJson(), "application/json") }) { Text("JSON") }
             Button(onClick = { if (real > 0) share(repo.exportCsv(), "text/csv") }) { Text("CSV") }
@@ -502,6 +502,27 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 )
                 OutlinedButton(onClick = { repo.setLabReference(s.id, labRef); samples = repo.all() }) {
                     Text("💾 የላብ ማጣቀሻ አስቀምጥ")
+                }
+                var gtMethod by remember(s.id, s.groundTruthMethod) { mutableStateOf(s.groundTruthMethod ?: "") }
+                var gtRef by remember(s.id, s.groundTruthReferenceId) { mutableStateOf(s.groundTruthReferenceId ?: "") }
+                OutlinedTextField(
+                    value = gtMethod,
+                    onValueChange = { gtMethod = it },
+                    label = { Text("የground-truth ምርመራ ዘዴ") },
+                    supportingText = { Text("ለምሳሌ approved laboratory / food-safety protocol") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = gtRef,
+                    onValueChange = { gtRef = it },
+                    label = { Text("የground-truth ሪፖርት/መለያ ቁጥር") },
+                    supportingText = { Text("የላብ ሪፖርት ወይም የተፈቀደ protocol reference ቁጥር") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedButton(onClick = { repo.setGroundTruthEvidence(s.id, gtMethod, gtRef); samples = repo.all() }) {
+                    Text("🧾 የማረጋገጫ ማስረጃ አስቀምጥ")
                 }
             }
         }
