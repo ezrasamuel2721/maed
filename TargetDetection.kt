@@ -64,8 +64,9 @@ object TargetDetector {
         refsFile(ctx).writeText(a.toString(2))
     }
 
-    private fun features(spectral:String?, voc:String?): DoubleArray? = try {
+    private fun features(spectral:String?, voc:String?): DoubleArray? {
         if(spectral==null || voc==null) return null
+        return try {
         val sp=JSONObject(spectral); val vo=JSONObject(voc)
         val keys=arrayOf("F1_415nm","F2_445nm","F3_480nm","F4_515nm","F5_555nm","F6_590nm","F7_630nm","F8_680nm","clear","nir")
         DoubleArray(FEATURE_COUNT).also { x ->
@@ -75,6 +76,7 @@ object TargetDetector {
             if(x.any{!it.isFinite()}) throw IllegalArgumentException()
         }
     } catch(_:Exception){null}
+    }
 
     private fun features(r:TargetReference)=features(r.spectral,r.voc)
 
@@ -108,7 +110,7 @@ object TargetDetector {
         fun norm(x:DoubleArray)=DoubleArray(FEATURE_COUNT){j->(x[j]-mean[j])/sd[j]}
         fun centroid(p:Boolean)=DoubleArray(FEATURE_COUNT){
             val rows=train.filter{it.first.present==p}.map{norm(it.second)}
-            DoubleArray(FEATURE_COUNT){j->rows.sumOf{it[j]}/rows.size}
+            DoubleArray(FEATURE_COUNT){j->rows.fold(0.0){acc,row->acc+row[j]}/rows.size.toDouble()}
         }
         val pc=centroid(true); val ac=centroid(false)
         fun pred(x:DoubleArray):Boolean{
