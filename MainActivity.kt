@@ -238,6 +238,18 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     }
                     TextButton(onClick = { repo.delete(s.id); samples = repo.all() }) { Text("🗑️ ሰርዝ", color = Color(0xFFB42318)) }
                 }
+                var labRef by remember(s.id, s.labReference) { mutableStateOf(s.labReference ?: "") }
+                OutlinedTextField(
+                    value = labRef,
+                    onValueChange = { labRef = it },
+                    label = { Text("የላብራቶሪ ማጣቀሻ") },
+                    supportingText = { Text("የተረጋገጠ የላብ ሪፖርት ቁጥር ብቻ ያስገቡ።") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedButton(onClick = { repo.setLabReference(s.id, labRef); samples = repo.all() }) {
+                    Text("💾 የላብ ማጣቀሻ አስቀምጥ")
+                }
             }
         }
     }
