@@ -43,7 +43,7 @@ private val DEMO = listOf(
     "Adama Fresh Kitchen — Adama: Chicken 230 ETB · Rice 140 ETB · Salad 100 ETB"
 )
 private val MENU = listOf(
-    "dataset" to "🗂️ Dataset", "model" to "🤖 AI ሞዴል", "screening" to "🛡️ Food Safety Screening", "target" to "🧪 ንጥረ ነገር ፈልግ", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት", "diagnostics" to "🔧 Hardware Test",
+    "device" to "🔬 MAED Device", "dataset" to "🗂️ Dataset", "model" to "🤖 AI ሞዴል", "screening" to "🛡️ Food Safety Screening", "target" to "🧪 ንጥረ ነገር ፈልግ", "settings" to "⚙️ ቅንብሮች", "report" to "⚠️ ሪፖርት", "diagnostics" to "🔧 Hardware Test",
     "🍽️ ምግብ ቤቶች" to "🍽️ ምግብ ቤቶች", "🏨 ሆቴሎች" to "🏨 ሆቴሎች", "📋 ሜኑዎች" to "📋 ሜኑዎች",
     "💰 ዋጋዎች" to "💰 ዋጋዎች", "🛒 ትዕዛዝ" to "🛒 ትዕዛዝ", "📍 በአካባቢዬ ያሉ" to "📍 በአካባቢዬ ያሉ",
     "👤 የንግድ ባለቤት መመዝገቢያ" to "👤 የንግድ ባለቤት መመዝገቢያ"
@@ -266,7 +266,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             }
             Box(Modifier.weight(1f).padding(16.dp)) {
                 when (screen) {
-                    "home" -> Home(); "record" -> Record(); "working" -> Working(); "result" -> Result()
+                    "home" -> Home(); "device" -> DeviceScreen(); "record" -> Record(); "working" -> Working(); "result" -> Result()
                     "dataset" -> Dataset(); "model" -> ModelScreen(); "screening" -> ScreeningInfo(); "target" -> TargetScreen(); "settings" -> Settings(); "report" -> Report(); "diagnostics" -> Diagnostics(); else -> Layer(screen)
                 }
             }
